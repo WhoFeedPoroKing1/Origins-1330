@@ -1,11 +1,11 @@
 /**
  * Origins live — tek ortak oda, otomatik bağlan
- * Oda kodu yok: siteye giren herkes aynı ağa düşer.
- * Sayfa değişince yeniden bağlanır (host seçimi otomatik).
+ * Dayanıklı: backoff, TURN, sık ağ-hatası döngüsü yok
  */
 (function (global) {
   const FIXED_ROOM = "ORIGINS1330";
-  const PEER_HOST_ID = "origins1330-live-v2";
+  // Host peer id — kısa ve sabit (cloud üzerinde)
+  const PEER_HOST_ID = "origins1330live";
 
   let peer = null;
   let conn = null;
@@ -17,8 +17,10 @@
   let wantAlive = false;
   let reconnectTimer = null;
   let keepAliveTimer = null;
-  let hostClaimTimer = null;
   let connecting = false;
+  let failCount = 0;
+  let mode = ""; // "host" | "guest"
+  let lastStatus = "";
 
   let onState = null;
   let onTokenMove = null;
@@ -34,21 +36,38 @@
   let presenceMap = Object.create(null);
 
   function setStatus(msg) {
+    if (msg === lastStatus) return;
+    lastStatus = msg || "";
     const el = document.getElementById("roomStatus");
-    if (el) el.textContent = msg || "";
+    if (el) el.textContent = lastStatus;
     if (onStatus) {
-      try { onStatus(msg); } catch (_) {}
+      try { onStatus(lastStatus); } catch (_) {}
     }
   }
 
-  function peerOptions() {
+  function peerOptions(withId) {
+    // Açık bulut + STUN/TURN (NAT arkasında şans artırır)
     return {
+      host: "0.peerjs.com",
+      port: 443,
+      path: "/",
+      secure: true,
       debug: 0,
+      pingInterval: 10000,
       config: {
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
-          { urls: "stun:stun.cloudflare.com:3478" },
+          {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
+          {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
         ],
       },
     };
@@ -119,8 +138,8 @@
     if (onPresence) {
       try { onPresence(list); } catch (_) {}
     }
-    const n = list.length || 1;
-    if (isHost) setStatus("Çevrimiçi · " + n + " kişi · host");
+    const n = Math.max(1, list.length);
+    if (isHost) setStatus("Çevrimiçi · " + n + " kişi");
     else if (conn && conn.open) setStatus("Çevrimiçi · " + n + " kişi");
   }
 
@@ -139,7 +158,7 @@
 
   function currentPage() {
     try {
-      return (location.pathname.split("/").pop() || "index.html") || "index.html";
+      return location.pathname.split("/").pop() || "index.html";
     } catch (_) {
       return "index.html";
     }
@@ -203,16 +222,17 @@
     c.on("close", () => {
       connections = connections.filter((x) => x !== c);
       if (!isHost) {
-        setStatus("Bağlantı koptu — yeniden…");
+        setStatus("Bağlantı koptu");
         if (onHost) {
           try { onHost({ type: "host_lost" }); } catch (_) {}
         }
-        if (wantAlive) scheduleReconnect(400);
+        if (wantAlive) scheduleReconnect(true);
       } else {
         publishPresence();
       }
     });
     c.on("open", () => {
+      failCount = 0;
       if (isHost) {
         if (connections.indexOf(c) < 0) connections.push(c);
         if (typeof global.__originsGetState === "function") {
@@ -235,33 +255,33 @@
         sendPresence();
         publishPresence();
       } else {
-        setStatus("Çevrimiçi · bağlı");
+        setStatus("Çevrimiçi");
+        startKeepAlive();
+        sendPresence();
         try {
           c.send(JSON.stringify({ type: "request_state", from: ensureClientId(), t: Date.now() }));
         } catch (_) {}
-        sendPresence();
       }
     });
     c.on("error", () => {
-      if (!isHost && wantAlive) scheduleReconnect(800);
+      if (!isHost && wantAlive) scheduleReconnect(false);
     });
   }
 
   function hardDestroy() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
-    clearTimeout(hostClaimTimer);
-    hostClaimTimer = null;
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
-    try { connections.forEach((c) => c.close()); } catch (_) {}
+    connecting = false;
+    try { connections.forEach((c) => { try { c.close(); } catch (_) {} }); } catch (_) {}
     try { if (conn) conn.close(); } catch (_) {}
     try { if (peer) peer.destroy(); } catch (_) {}
     peer = null;
     conn = null;
     connections = [];
     isHost = false;
-    connecting = false;
+    mode = "";
   }
 
   function startKeepAlive() {
@@ -269,38 +289,70 @@
     keepAliveTimer = setInterval(() => {
       if (!wantAlive) return;
       try { sendPresence(); } catch (_) {}
-    }, 4000);
+    }, 6000);
   }
 
-  function scheduleReconnect(ms) {
+  function backoffMs() {
+    // 1.5s, 3s, 6s, 10s, 15s tavan — sürekli spam yok
+    const steps = [1500, 3000, 6000, 10000, 15000];
+    return steps[Math.min(failCount, steps.length - 1)];
+  }
+
+  function scheduleReconnect(resetFails) {
     if (!wantAlive) return;
+    if (resetFails) failCount = 0;
+    else failCount += 1;
+
+    // Çok fazla deneme: dur, kullanıcı ↻ bassın
+    if (failCount >= 8) {
+      connecting = false;
+      setStatus("Bağlanamadı — ↻ dene veya sayfayı yenile");
+      return;
+    }
+
     clearTimeout(reconnectTimer);
+    const wait = backoffMs();
+    setStatus("Yeniden bağlanılacak (" + Math.round(wait / 1000) + "s)…");
     reconnectTimer = setTimeout(() => {
       if (!wantAlive) return;
       autoConnect(true);
-    }, ms || 600);
+    }, wait);
   }
 
-  /** Host olmayı dene; ID doluysa misafir olarak katıl */
   function tryBecomeHost() {
     hardDestroy();
     connecting = true;
     isHost = true;
+    mode = "host";
     roomId = FIXED_ROOM;
     presenceMap = Object.create(null);
     setStatus("Ağa bağlanıyor…");
+
+    if (typeof Peer === "undefined") {
+      connecting = false;
+      scheduleReconnect(false);
+      return;
+    }
 
     try {
       peer = new Peer(PEER_HOST_ID, peerOptions());
     } catch (e) {
       connecting = false;
-      setStatus("Peer yok");
-      scheduleReconnect(1500);
+      scheduleReconnect(false);
       return;
     }
 
+    const openTimer = setTimeout(() => {
+      if (peer && !peer.open && wantAlive && mode === "host") {
+        // Host id açılmadı → misafir dene
+        tryBecomeGuest();
+      }
+    }, 8000);
+
     peer.on("open", () => {
+      clearTimeout(openTimer);
       connecting = false;
+      failCount = 0;
       isHost = true;
       upsertPresence({
         id: ensureClientId(),
@@ -308,19 +360,9 @@
         host: true,
         page: currentPage(),
       });
-      setStatus("Çevrimiçi · host sensin");
+      setStatus("Çevrimiçi · 1 kişi");
       startKeepAlive();
       sendPresence();
-      if (typeof global.__originsGetState === "function") {
-        try {
-          broadcast({
-            type: "state",
-            state: global.__originsGetState(),
-            from: ensureClientId(),
-            t: Date.now(),
-          });
-        } catch (_) {}
-      }
     });
 
     peer.on("connection", (c) => {
@@ -329,26 +371,30 @@
     });
 
     peer.on("error", (e) => {
-      const tip = String(e.type || e.message || "");
+      clearTimeout(openTimer);
+      const tip = String((e && (e.type || e.message)) || "");
       if (tip.indexOf("unavailable-id") >= 0 || tip.indexOf("taken") >= 0) {
-        // Host zaten var → katıl
+        // Host dolu → katıl
         tryBecomeGuest();
-      } else if (tip.indexOf("network") >= 0) {
-        setStatus("Ağ hatası — yeniden…");
-        scheduleReconnect(1200);
-      } else {
-        setStatus("Hata: " + tip);
-        scheduleReconnect(1500);
+        return;
       }
+      // network / server-error / socket-error
+      connecting = false;
+      if (wantAlive) scheduleReconnect(false);
     });
 
     peer.on("disconnected", () => {
       if (!wantAlive) return;
-      try { peer.reconnect(); } catch (_) { scheduleReconnect(1000); }
+      setStatus("Kopuk — toparlanıyor…");
+      try {
+        peer.reconnect();
+      } catch (_) {
+        scheduleReconnect(false);
+      }
     });
 
     peer.on("close", () => {
-      if (wantAlive) scheduleReconnect(800);
+      if (wantAlive && mode === "host") scheduleReconnect(false);
     });
   }
 
@@ -356,65 +402,74 @@
     hardDestroy();
     connecting = true;
     isHost = false;
+    mode = "guest";
     roomId = FIXED_ROOM;
     presenceMap = Object.create(null);
     setStatus("Masaya bağlanıyor…");
+
+    if (typeof Peer === "undefined") {
+      connecting = false;
+      scheduleReconnect(false);
+      return;
+    }
 
     try {
       peer = new Peer(peerOptions());
     } catch (e) {
       connecting = false;
-      scheduleReconnect(1500);
+      scheduleReconnect(false);
       return;
     }
 
     peer.on("open", () => {
-      connecting = false;
       try {
         conn = peer.connect(PEER_HOST_ID, { reliable: true });
       } catch (err) {
-        scheduleReconnect(1000);
+        connecting = false;
+        // Host yok gibi — host ol
+        setTimeout(() => { if (wantAlive) tryBecomeHost(); }, 400);
         return;
       }
       wireConn(conn);
 
       const failTimer = setTimeout(() => {
         if (conn && conn.open) return;
-        // Host yok / yanıt yok → host olmayı dene
-        setStatus("Host yok — üstleniliyor…");
-        tryBecomeHost();
-      }, 7000);
+        connecting = false;
+        // Host yanıt vermedi → host olmayı dene
+        if (wantAlive) tryBecomeHost();
+      }, 9000);
 
       conn.on("open", () => {
         clearTimeout(failTimer);
-        setStatus("Çevrimiçi · bağlı");
+        connecting = false;
+        failCount = 0;
+        setStatus("Çevrimiçi");
         startKeepAlive();
         sendPresence();
         try {
           conn.send(JSON.stringify({ type: "request_state", from: ensureClientId(), t: Date.now() }));
         } catch (_) {}
       });
+
+      conn.on("error", () => {
+        clearTimeout(failTimer);
+      });
     });
 
-    peer.on("error", (e) => {
-      const tip = String(e.type || e.message || "");
-      setStatus("Bağlantı…");
-      scheduleReconnect(1200);
+    peer.on("error", () => {
+      connecting = false;
+      if (wantAlive) scheduleReconnect(false);
     });
 
     peer.on("disconnected", () => {
-      if (wantAlive) scheduleReconnect(1000);
+      if (wantAlive) scheduleReconnect(false);
     });
 
     peer.on("close", () => {
-      if (wantAlive) scheduleReconnect(800);
+      if (wantAlive && mode === "guest") scheduleReconnect(false);
     });
   }
 
-  /**
-   * Otomatik bağlan — oda kodu yok.
-   * force=true ise mevcut bağlantıyı kırıp yeniden dener.
-   */
   function autoConnect(force) {
     wantAlive = true;
     roomId = FIXED_ROOM;
@@ -424,37 +479,45 @@
     }
     ensureClientId();
 
-    // PeerJS henüz yüklenmediyse bekle
     if (typeof Peer === "undefined") {
-      setStatus("Bağlantı kütüphanesi yükleniyor…");
+      setStatus("Bağlantı yükleniyor…");
       let tries = 0;
       const wait = setInterval(() => {
         tries += 1;
         if (typeof Peer !== "undefined") {
           clearInterval(wait);
           autoConnect(force);
-        } else if (tries > 40) {
+        } else if (tries > 30) {
           clearInterval(wait);
           setStatus("Bağlantı yüklenemedi — sayfayı yenile");
         }
-      }, 250);
+      }, 300);
       return;
     }
 
+    // Zaten bağlıysa dokunma
     if (!force && peer && !peer.destroyed) {
       if (isHost && peer.open) {
         sendPresence();
         publishPresence();
+        setStatus("Çevrimiçi · " + Math.max(1, Object.keys(presenceMap).length) + " kişi");
         return;
       }
       if (!isHost && conn && conn.open) {
         sendPresence();
+        setStatus("Çevrimiçi");
         return;
       }
     }
 
     if (connecting && !force) return;
-    // Önce host olmayı dene; doluysa misafir
+
+    if (force) {
+      failCount = 0;
+      lastStatus = "";
+    }
+
+    // Önce host dene; doluysa guest
     tryBecomeHost();
   }
 
@@ -480,18 +543,9 @@
     broadcast(Object.assign({ type: "music", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload));
   }
 
-  // Eski API uyumu
-  function hostRoom() {
-    autoConnect(true);
-    return FIXED_ROOM;
-  }
-  function joinRoom() {
-    autoConnect(true);
-    return FIXED_ROOM;
-  }
-  function reconnect() {
-    autoConnect(true);
-  }
+  function hostRoom() { autoConnect(true); return FIXED_ROOM; }
+  function joinRoom() { autoConnect(true); return FIXED_ROOM; }
+  function reconnect() { failCount = 0; autoConnect(true); }
   function destroy(force) {
     if (!force && wantAlive) return;
     wantAlive = false;
@@ -512,9 +566,7 @@
     pushRuler,
     pushMusic,
     sendPresence,
-    setDisplayName(n) {
-      saveDisplayName(n);
-    },
+    setDisplayName(n) { saveDisplayName(n); },
     setHandlers(h) {
       h = h || {};
       onState = h.onState || null;
@@ -534,18 +586,14 @@
         if (!peer || peer.destroyed) return false;
         if (isHost) return !!peer.open;
         return !!(conn && conn.open);
-      } catch (_) {
-        return false;
-      }
+      } catch (_) { return false; }
     },
     leaveRoom: () => {
       wantAlive = false;
       hardDestroy();
       setStatus("Çevrimdışı");
     },
-    setWantAlive: (v) => {
-      wantAlive = !!v;
-    },
+    setWantAlive: (v) => { wantAlive = !!v; },
     roomId: () => FIXED_ROOM,
     clientId: () => ensureClientId(),
     getPresence: () => Object.values(presenceMap),
@@ -554,11 +602,14 @@
     persistRoom: () => {},
   };
 
-  // Sayfa görünür olunca canlı tut
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && wantAlive) {
-      if (!global.OriginsSync.isConnected()) autoConnect(true);
-      else sendPresence();
+      if (!global.OriginsSync.isConnected()) {
+        failCount = 0;
+        autoConnect(true);
+      } else {
+        sendPresence();
+      }
     }
   });
 })(window);

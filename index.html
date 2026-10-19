@@ -143,22 +143,6 @@
   <script src="js/core.js"></script>
   <script src="js/main.js"></script>
 
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/sync.js"></script>
-  <script>
-    (function () {
-      function go() {
-        if (!window.OriginsSync) return;
-        try {
-          var n = sessionStorage.getItem("origins_display_name") || localStorage.getItem("origins_display_name") || "";
-          if (n) OriginsSync.setDisplayName(n);
-          OriginsSync.autoConnect(false);
-        } catch (e) {}
-      }
-      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
-      else go();
-    })();
-  </script>
 
 </body>
 </html>
