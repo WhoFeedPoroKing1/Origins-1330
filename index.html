@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Origins — 1330</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .hero {
+      min-height: calc(100vh - 58px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 5.5rem 1.25rem 3rem;
+    }
+    .hero-inner { max-width: 640px; margin: 0 auto; }
+    .hero .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 0.85rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d);
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.85rem;
+      background: linear-gradient(180deg, #fff8e0 0%, var(--gold) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      color: var(--text-2);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      margin-bottom: 1.75rem;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      justify-content: center;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      width: min(960px, 92%);
+      margin: 0 auto 3.5rem;
+    }
+    .feature-grid .card h3 {
+      font-family: var(--font-d);
+      color: var(--gold);
+      font-size: 1rem;
+      margin-bottom: 0.45rem;
+    }
+    .feature-grid .card p {
+      font-size: 0.9rem;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+    .feature-grid a.card {
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s, transform 0.15s;
+    }
+    .feature-grid a.card:hover {
+      border-color: var(--gold-dim);
+      transform: translateY(-2px);
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo"><span>◆</span> ORIGINS</a>
+      <nav class="nav" id="nav">
+        <a href="dm.html">DM</a>
+        <a href="evren.html">Evren</a>
+        <a href="hikaye.html">Hikâye</a>
+        <a href="karakter.html">Karakter</a>
+        <a href="oyun.html">Masa</a>
+        <a href="harita.html">Harita</a>
+      </nav>
+      <button type="button" class="menu-btn" id="menuBtn" aria-label="Menü"><span></span><span></span></button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="hero-inner">
+      <span class="tag">Alternatif 1330 · Avrupa</span>
+      <h1>ORIGINS</h1>
+      <p>
+        Büyünün göründüğü bir çağ. Feodal siyaset, limanlar, kanlı ay geceleri
+        ve JoJo tarzı FRP masası — tek sitede evren, karakter ve sanal masa.
+      </p>
+      <div class="hero-actions">
+        <a href="oyun.html" class="btn btn-gold">Masaya gir</a>
+        <a href="karakter.html" class="btn btn-ghost">Karakter oluştur</a>
+        <a href="hikaye.html" class="btn btn-ghost">Hikâyeyi oku</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="feature-grid">
+    <a class="card" href="evren.html">
+      <h3>Evren</h3>
+      <p>1330 Avrupa’sı, güçler, büyü ve dünyanın kuralları.</p>
+    </a>
+    <a class="card" href="hikaye.html">
+      <h3>Hikâye</h3>
+      <p>Kampanya çerçevesi, çatışmalar ve açık uçlar.</p>
+    </a>
+    <a class="card" href="karakter.html">
+      <h3>Karakter</h3>
+      <p>İnsan + yoldaş formu, lakap, zar stili, portre.</p>
+    </a>
+    <a class="card" href="oyun.html">
+      <h3>Masa</h3>
+      <p>Token, sis, savaş, zar, online oda, Kanlı Ay.</p>
+    </a>
+    <a class="card" href="harita.html">
+      <h3>Harita</h3>
+      <p>1330 Avrupa haritası üzerinde gez.</p>
+    </a>
+    <a class="card" href="dm.html">
+      <h3>DM Kanalı</h3>
+      <p>Şifreli alan: NPC, dost / nötr / düşman kütüphanesi.</p>
+    </a>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-logo">ORIGINS</div>
+    <div class="footer-sub">1330 · Alternatif tarih FRP</div>
+  </footer>
+
+  <script src="js/core.js"></script>
+  <script src="js/main.js"></script>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="js/sync.js"></script>
+  <script>
+    (function () {
+      function go() {
+        if (!window.OriginsSync) return;
+        try {
+          var n = sessionStorage.getItem("origins_display_name") || localStorage.getItem("origins_display_name") || "";
+          if (n) OriginsSync.setDisplayName(n);
+          OriginsSync.autoConnect(false);
+        } catch (e) {}
+      }
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
+      else go();
+    })();
+  </script>
+
+</body>
+</html>
