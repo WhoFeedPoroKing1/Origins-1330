@@ -186,9 +186,25 @@
         <div class="action-bar" id="actionBar">
           <span class="ab-label" id="actionBarName">Token seç</span>
           <button type="button" class="ab-btn" id="abAttack" title="Saldırı">⚔ Saldır</button>
-                    <button type="button" class="ab-btn" id="abDoor" title="Yakın kapı">🚪 Kapı</button>
+          <button type="button" class="ab-btn" id="abDoor" title="Yakın kapı">🚪 Kapı</button>
           <button type="button" class="ab-btn" id="abDeath" title="Ölüm zarı">💀 Ölüm zarı</button>
           <button type="button" class="ab-btn" id="abAlly" title="Yoldaş">🕊 Dostunu çağır</button>
+          <button type="button" class="ab-btn ab-sfx" id="abSfx1" title="Sol tık: çal · sağ tık: ayarla">🔊 Ses 1</button>
+          <button type="button" class="ab-btn ab-sfx" id="abSfx2" title="Sol tık: çal · sağ tık: ayarla">🔊 Ses 2</button>
+        </div>
+        <!-- Kişisel ses ayarı -->
+        <div id="sfxEditModal" class="sfx-modal" style="display:none" aria-hidden="true">
+          <div class="sfx-modal-box">
+            <h4 id="sfxEditTitle">Ses paneli</h4>
+            <label>İsim <input type="text" id="sfxEditName" maxlength="24" placeholder="Örn. Kılıç, Büyü" /></label>
+            <label>Ses dosyası <input type="file" id="sfxEditFile" accept="audio/*,.mp3,.ogg,.wav" /></label>
+            <p id="sfxEditHint" class="sfx-hint">Bu ses sadece sende; token çubuğundan çalarsın.</p>
+            <div class="sfx-modal-actions">
+              <button type="button" class="btn btn-ghost btn-sm" id="sfxEditCancel">İptal</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="sfxEditClear">Sesi sil</button>
+              <button type="button" class="btn btn-gold btn-sm" id="sfxEditSave">Kaydet</button>
+            </div>
+          </div>
         </div>
 
         <div class="vtt-world" id="vttWorld">

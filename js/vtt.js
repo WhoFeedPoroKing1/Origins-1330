@@ -540,10 +540,22 @@ function initVTT() {
           applyMapXF();
           syncMapUI();
           persistScenes();
-          // Herkese map gönder
+          // Herkese map gönder (chunk)
+          try {
+            if (window.OriginsSync && OriginsSync.pushMapImage) {
+              OriginsSync.pushMapImage(dataUrl, { mapOX: mapOX, mapOY: mapOY, mapScale: mapScale });
+            }
+          } catch (_) {}
           scheduleSync();
-          setTimeout(() => { try { scheduleSync(); } catch (_) {} }, 400);
-          chatAdd("Map yüklendi ve odaya gönderildi", "sys");
+          setTimeout(() => {
+            try {
+              if (window.OriginsSync && OriginsSync.pushMapImage) {
+                OriginsSync.pushMapImage(dataUrl, { mapOX: mapOX, mapOY: mapOY, mapScale: mapScale });
+              }
+              scheduleSync();
+            } catch (_) {}
+          }, 500);
+          chatAdd("Map yüklendi — odaya gönderiliyor…", "sys");
         };
         bgImg.onerror = () => alert("Map görseli yüklenemedi");
         bgImg.src = dataUrl;
@@ -581,6 +593,7 @@ function initVTT() {
 
   document.getElementById("mapClearBg")?.addEventListener("click", () => {
     if (!isDm()) return;
+    if (!confirm("Map herkes için silinsin mi?")) return;
     const sc = currentScene();
     if (sc) sc.mapBg = null;
     try { localStorage.removeItem(S.mapBg); } catch (_) {}
@@ -589,6 +602,17 @@ function initVTT() {
     bgImg.style.width = "";
     bgImg.style.height = "";
     persistScenes();
+    try {
+      if (window.OriginsSync && OriginsSync.pushState) {
+        // özel silme işareti
+        OriginsSync.pushChat({ text: "Map kaldırıldı", cls: "sys", t: Date.now() });
+      }
+      if (window.OriginsSync && typeof OriginsSync._publish === "function") {}
+    } catch (_) {}
+    // map_clear mesajı
+    try {
+      if (window.OriginsSync && OriginsSync.pushMapClear) OriginsSync.pushMapClear();
+    } catch (_) {}
     scheduleSync();
   });
 
@@ -2883,7 +2907,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           chatAdd("Dosya çok büyük (4MB+). Daha kısa loop kullan.", "sys");
         }
         const id = "m" + Date.now().toString(36);
-        const CHUNK = 90000;
+        const CHUNK = 32000; // MQTT limitine uygun
         const total = Math.ceil(musicDataUrl.length / CHUNK) || 1;
         OriginsSync.pushMusic({
           action: "play_begin",
@@ -2957,6 +2981,133 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     broadcastMusic("stop");
     chatAdd("♫ Müzik durdu (oda)", "sys");
   });
+
+  // ── Kişisel 2 ses paneli (her oyuncuya özel, localStorage) ──
+  const PLAYER_SFX_KEY = "origins_player_sfx_v1";
+  let _sfxEditSlot = 1;
+  let _sfxPendingData = null;
+
+  function loadPlayerSfx() {
+    try {
+      const d = JSON.parse(localStorage.getItem(PLAYER_SFX_KEY) || "{}");
+      return {
+        1: d[1] || d.s1 || { name: "Ses 1", dataUrl: "" },
+        2: d[2] || d.s2 || { name: "Ses 2", dataUrl: "" },
+      };
+    } catch (_) {
+      return { 1: { name: "Ses 1", dataUrl: "" }, 2: { name: "Ses 2", dataUrl: "" } };
+    }
+  }
+  function savePlayerSfx(data) {
+    try { localStorage.setItem(PLAYER_SFX_KEY, JSON.stringify(data)); } catch (e) {
+      alert("Ses kaydedilemedi (dosya çok büyük olabilir, daha kısa ses dene).");
+    }
+  }
+  function refreshSfxButtons() {
+    const data = loadPlayerSfx();
+    [1, 2].forEach((n) => {
+      const btn = document.getElementById("abSfx" + n);
+      if (!btn) return;
+      const slot = data[n] || {};
+      const label = (slot.name || ("Ses " + n)).slice(0, 18);
+      btn.textContent = "🔊 " + label;
+      btn.classList.toggle("has-sound", !!(slot.dataUrl && slot.dataUrl.length > 20));
+      btn.title = "Sol tık: çal · sağ tık: isim/ses ayarla";
+    });
+  }
+  function playPlayerSfx(slot) {
+    const data = loadPlayerSfx();
+    const s = data[slot];
+    if (!s || !s.dataUrl) {
+      openSfxEditor(slot);
+      return;
+    }
+    try {
+      getAudio();
+      const a = new Audio(s.dataUrl);
+      a.volume = 0.85;
+      a.play().catch(() => alert("Ses çalınamadı — tarayıcı engellemiş olabilir"));
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+  function openSfxEditor(slot) {
+    _sfxEditSlot = slot;
+    _sfxPendingData = null;
+    const data = loadPlayerSfx();
+    const s = data[slot] || {};
+    const modal = document.getElementById("sfxEditModal");
+    const title = document.getElementById("sfxEditTitle");
+    const nameIn = document.getElementById("sfxEditName");
+    const fileIn = document.getElementById("sfxEditFile");
+    if (title) title.textContent = "Ses paneli " + slot;
+    if (nameIn) nameIn.value = s.name || ("Ses " + slot);
+    if (fileIn) fileIn.value = "";
+    if (modal) {
+      modal.style.display = "flex";
+      modal.setAttribute("aria-hidden", "false");
+    }
+  }
+  function closeSfxEditor() {
+    const modal = document.getElementById("sfxEditModal");
+    if (modal) {
+      modal.style.display = "none";
+      modal.setAttribute("aria-hidden", "true");
+    }
+    _sfxPendingData = null;
+  }
+  document.getElementById("sfxEditFile")?.addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    if (f.size > 1.5e6) {
+      alert("Ses ~1.5MB altı olsun.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => { _sfxPendingData = reader.result; };
+    reader.readAsDataURL(f);
+  });
+  document.getElementById("sfxEditSave")?.addEventListener("click", () => {
+    const data = loadPlayerSfx();
+    const nameIn = document.getElementById("sfxEditName");
+    const name = (nameIn && nameIn.value.trim()) || ("Ses " + _sfxEditSlot);
+    const prev = data[_sfxEditSlot] || {};
+    data[_sfxEditSlot] = {
+      name: name.slice(0, 24),
+      dataUrl: _sfxPendingData || prev.dataUrl || "",
+    };
+    savePlayerSfx(data);
+    refreshSfxButtons();
+    closeSfxEditor();
+  });
+  document.getElementById("sfxEditClear")?.addEventListener("click", () => {
+    const data = loadPlayerSfx();
+    data[_sfxEditSlot] = { name: "Ses " + _sfxEditSlot, dataUrl: "" };
+    savePlayerSfx(data);
+    refreshSfxButtons();
+    closeSfxEditor();
+  });
+  document.getElementById("sfxEditCancel")?.addEventListener("click", closeSfxEditor);
+  document.getElementById("sfxEditModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "sfxEditModal") closeSfxEditor();
+  });
+  [1, 2].forEach((n) => {
+    const btn = document.getElementById("abSfx" + n);
+    if (!btn) return;
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      playPlayerSfx(n);
+    });
+    btn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openSfxEditor(n);
+    });
+  });
+  try { refreshSfxButtons(); } catch (_) {}
+
+
 
   function handleRemoteMusic(msg) {
     if (!msg) return;
@@ -4440,27 +4591,29 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     try { persistVision(); } catch (_) {}
     try { renderDoors(); } catch (_) {}
 
-    // Map image sync
-    if (st.mapBg !== undefined) {
+    // Map: dolu gelirse yükle; _forceClearMap ile bilinçli sil; aksi halde dokunma
+    if (st._forceClearMap) {
       const sc = typeof currentScene === "function" ? currentScene() : null;
-      if (st.mapBg) {
-        if (sc) sc.mapBg = st.mapBg;
-        const curSrc = bgImg && bgImg.getAttribute("src");
-        // Avoid reload loop if same image
-        if (curSrc !== st.mapBg) {
-          mapOX = st.mapOX != null ? st.mapOX : mapOX;
-          mapOY = st.mapOY != null ? st.mapOY : mapOY;
-          mapScale = st.mapScale != null ? st.mapScale : mapScale;
-          loadMapDataUrl(st.mapBg, { preserve: true });
-        } else {
-          applyMapXF();
-        }
+      if (sc) sc.mapBg = null;
+      try { localStorage.removeItem(S.mapBg); } catch (_) {}
+      if (bgImg) {
+        bgImg.removeAttribute("src");
+        bgImg.style.display = "none";
+      }
+      try { persistScenes(); } catch (_) {}
+    } else if (st.mapBg && String(st.mapBg).length > 20) {
+      const sc = typeof currentScene === "function" ? currentScene() : null;
+      if (sc) sc.mapBg = st.mapBg;
+      try { localStorage.setItem(S.mapBg, st.mapBg); } catch (_) {}
+      const curSrc = bgImg && bgImg.getAttribute("src");
+      if (curSrc !== st.mapBg) {
+        if (st.mapOX != null) mapOX = st.mapOX;
+        if (st.mapOY != null) mapOY = st.mapOY;
+        if (st.mapScale != null) mapScale = st.mapScale;
+        loadMapDataUrl(st.mapBg, { preserve: true });
+        try { persistScenes(); } catch (_) {}
       } else {
-        if (sc) sc.mapBg = null;
-        if (bgImg) {
-          bgImg.removeAttribute("src");
-          bgImg.style.display = "none";
-        }
+        applyMapXF();
       }
     } else {
       applyMapXF();
@@ -4816,6 +4969,10 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     setDis("abDoor", !!can);
     setDis("abDeath", !!(can && dying));
     setDis("abAlly", !!(can && tok && tok.form !== "ally" && !tok.enemy));
+    // Kişisel sesler her zaman açık
+    setDis("abSfx1", true);
+    setDis("abSfx2", true);
+    try { refreshSfxButtons(); } catch (_) {}
   }
 
   document.getElementById("abAttack")?.addEventListener("click", () => {

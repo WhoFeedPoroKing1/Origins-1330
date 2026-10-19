@@ -132,15 +132,82 @@
     if (Array.isArray(out.tokens)) {
       out.tokens = out.tokens.map((tk) => {
         const t = Object.assign({}, tk);
-        // dataURL portreleri MQTT limitini aşar — lokal kalsın
         if (t.portrait && String(t.portrait).length > 200) t.portrait = "";
         if (t.atkSfx && String(t.atkSfx).length > 200) t.atkSfx = "";
         return t;
       });
     }
-    // mapBg dataURL gönderme
-    if (out.mapBg && String(out.mapBg).length > 500) out.mapBg = null;
+    // Map ayrı chunk sistemiyle gider — state ile ASLA null gönderme (silinmesin)
+    delete out.mapBg;
     return out;
+  }
+
+  // ── Map chunk transfer ──
+  const _mapParts = Object.create(null); // id -> { total, parts[], meta }
+  const MAP_CHUNK = 35000;
+
+  function pushMapImage(dataUrl, meta) {
+    if (!dataUrl || !connected) return false;
+    meta = meta || {};
+    const id = "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const str = String(dataUrl);
+    const total = Math.max(1, Math.ceil(str.length / MAP_CHUNK));
+    for (let i = 0; i < total; i++) {
+      const ok = publish(TOPIC, {
+        type: "map_chunk",
+        id: id,
+        i: i,
+        total: total,
+        data: str.slice(i * MAP_CHUNK, (i + 1) * MAP_CHUNK),
+        mapOX: meta.mapOX,
+        mapOY: meta.mapOY,
+        mapScale: meta.mapScale,
+        from: ensureClientId(),
+        t: Date.now(),
+      });
+      if (!ok) console.warn("map chunk fail", i);
+    }
+    // küçük işaret: map var
+    publish(TOPIC, {
+      type: "map_ready",
+      id: id,
+      total: total,
+      mapOX: meta.mapOX,
+      mapOY: meta.mapOY,
+      mapScale: meta.mapScale,
+      from: ensureClientId(),
+      t: Date.now(),
+    });
+    return true;
+  }
+
+  function handleMapChunk(msg) {
+    if (!msg || !msg.id) return;
+    if (! _mapParts[msg.id]) {
+      _mapParts[msg.id] = { total: msg.total || 1, parts: [], meta: msg };
+    }
+    const b = _mapParts[msg.id];
+    b.parts[msg.i] = msg.data || "";
+    b.meta = msg;
+    let full = true;
+    for (let i = 0; i < b.total; i++) {
+      if (typeof b.parts[i] !== "string") { full = false; break; }
+    }
+    if (!full) return;
+    const dataUrl = b.parts.join("");
+    delete _mapParts[msg.id];
+    if (onState) {
+      try {
+        onState({
+          mapBg: dataUrl,
+          mapOX: b.meta.mapOX,
+          mapOY: b.meta.mapOY,
+          mapScale: b.meta.mapScale,
+        }, { from: msg.from, type: "map" });
+      } catch (e) {
+        console.warn("map apply", e);
+      }
+    }
   }
 
   function publish(topic, obj) {
@@ -180,6 +247,14 @@
     }
     if (msg.from && msg.from === my) return;
 
+    if (msg.type === "map_chunk") {
+      handleMapChunk(msg);
+      return;
+    }
+    if (msg.type === "map_clear" && onState) {
+      onState({ mapBg: "", _forceClearMap: true }, { from: msg.from, type: "map_clear" });
+      return;
+    }
     if (msg.type === "state" && onState) onState(msg.state, msg);
     if (msg.type === "token_move" && onTokenMove) onTokenMove(msg);
     if (msg.type === "fx" && onFx) onFx(msg);
@@ -188,17 +263,13 @@
     if (msg.type === "presence") upsertPresence(msg);
     if (msg.type === "ruler" && onRuler) onRuler(msg);
     if (msg.type === "music" && onMusic) {
-      // büyük dataUrl'leri alma
-      if (msg.dataUrl && String(msg.dataUrl).length > 5000) {
-        msg = Object.assign({}, msg, { dataUrl: null });
-      }
       onMusic(msg);
     }
     if (msg.type === "request_state" && typeof global.__originsGetState === "function") {
-      // herkes cevap verebilir; küçük gecikme ile çakışmayı azalt
       setTimeout(() => {
         try {
-          const st = leanState(global.__originsGetState());
+          const full = global.__originsGetState();
+          const st = leanState(full);
           publish(TOPIC, {
             type: "state",
             state: st,
@@ -206,6 +277,14 @@
             t: Date.now(),
             seq: nextSeq(),
           });
+          // Map varsa chunk ile tekrar gönder
+          if (full && full.mapBg && String(full.mapBg).length > 100) {
+            pushMapImage(full.mapBg, {
+              mapOX: full.mapOX,
+              mapOY: full.mapOY,
+              mapScale: full.mapScale,
+            });
+          }
         } catch (_) {}
       }, 150 + Math.random() * 400);
     }
@@ -410,9 +489,12 @@
     publish(TOPIC, Object.assign({ type: "ruler", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload));
   }
   function pushMusic(payload) {
-    // mp3 dataUrl paylaşma — sadece kontrol mesajı
+    // play_chunk / play_begin / play_end / stop — data alanı korunur
     const p = Object.assign({}, payload);
-    if (p.dataUrl) delete p.dataUrl;
+    // tek seferlik dev dataUrl gönderme (chunk kullan)
+    if (p.dataUrl && String(p.dataUrl).length > 4000 && p.action !== "play_chunk") {
+      delete p.dataUrl;
+    }
     publish(TOPIC, Object.assign({ type: "music", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, p));
   }
 
@@ -427,6 +509,10 @@
       setStatus("Çevrimdışı");
     },
     pushState: pushState,
+    pushMapImage: pushMapImage,
+    pushMapClear: function () {
+      publish(TOPIC, { type: "map_clear", from: ensureClientId(), t: Date.now() });
+    },
     pushChat: pushChat,
     pushTokenMove: pushTokenMove,
     pushFx: pushFx,

@@ -2318,3 +2318,71 @@ body {
   color: #c07070 !important;
   background: rgba(80, 20, 24, 0.25);
 }
+
+/* Personal SFX on action bar */
+.ab-btn.ab-sfx {
+  border-color: rgba(120, 180, 220, 0.45);
+  color: #b8d4e8;
+}
+.ab-btn.ab-sfx.has-sound {
+  border-color: rgba(90, 200, 140, 0.55);
+  color: #9ee0b8;
+}
+.sfx-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.sfx-modal-box {
+  width: min(360px, 100%);
+  background: var(--surface, #14141c);
+  border: 1px solid rgba(212,175,55,0.35);
+  border-radius: 12px;
+  padding: 1.1rem 1.15rem;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.sfx-modal-box h4 {
+  font-family: var(--font-d), Cinzel, serif;
+  color: var(--gold, #d4af37);
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+.sfx-modal-box label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-2, #aaa);
+  margin-bottom: 0.65rem;
+}
+.sfx-modal-box input[type="text"] {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  background: #0c0c12;
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #eee;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+}
+.sfx-modal-box input[type="file"] {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: #ccc;
+}
+.sfx-hint {
+  font-size: 0.72rem;
+  color: #6b665c;
+  margin: 0.25rem 0 0.75rem;
+  line-height: 1.4;
+}
+.sfx-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
