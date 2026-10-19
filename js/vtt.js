@@ -2892,13 +2892,25 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     });
   });
 
-  // ── Music loop player ──
+
+  // ── Music: YouTube (birincil) + MP3 dosya (yedek) ──
   let musicAudio = null;
   let musicObjectUrl = null;
-  let musicDataUrl = null; // shared to room
+  let musicDataUrl = null;
   let musicFileName = "";
-  let musicRemote = false; // playing from network
+  let musicRemote = false;
+  let musicMode = null; // "yt" | "file"
+  let ytPlayer = null;
+  let ytReady = false;
+  let ytVideoId = null;
+  let ytWantPlay = false;
+  const MUSIC_MAX_FILE = 30 * 1024 * 1024;
+  const _musicChunks = Object.create(null);
 
+  function setMusicLabel(text) {
+    const nameEl = document.getElementById("musicName");
+    if (nameEl) nameEl.textContent = text || "";
+  }
   function getMusicVol() {
     const el = document.getElementById("musicVolume");
     let v = 40;
@@ -2914,20 +2926,145 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     if (musicAudio) {
       try { musicAudio.volume = vol; } catch (_) {}
     }
-    // tüm müzik audio etiketleri
     document.querySelectorAll("audio[data-origins-music]").forEach((a) => {
       try { a.volume = vol; } catch (_) {}
     });
+    if (ytPlayer && typeof ytPlayer.setVolume === "function") {
+      try { ytPlayer.setVolume(Math.round(vol * 100)); } catch (_) {}
+    }
+  }
+  function extractYoutubeId(input) {
+    if (!input) return null;
+    const s = String(input).trim();
+    if (/^[\w-]{11}$/.test(s)) return s;
+    try {
+      const u = new URL(s);
+      if (u.hostname.indexOf("youtu.be") >= 0) {
+        const id = u.pathname.replace(/^\//, "").slice(0, 11);
+        return /^[\w-]{11}$/.test(id) ? id : null;
+      }
+      if (u.hostname.indexOf("youtube.com") >= 0 || u.hostname.indexOf("youtube-nocookie.com") >= 0) {
+        const v = u.searchParams.get("v");
+        if (v && /^[\w-]{11}$/.test(v)) return v;
+        const parts = u.pathname.split("/").filter(Boolean);
+        // /embed/ID /shorts/ID /live/ID /v/ID
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (["embed", "shorts", "live", "v"].indexOf(parts[i]) >= 0 && /^[\w-]{11}$/.test(parts[i + 1])) {
+            return parts[i + 1];
+          }
+        }
+        if (parts[0] && /^[\w-]{11}$/.test(parts[0])) return parts[0];
+      }
+    } catch (_) {
+      const m = s.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);
+      if (m) return m[1];
+    }
+    return null;
+  }
+  function ensureYtApi(cb) {
+    if (window.YT && window.YT.Player) {
+      cb();
+      return;
+    }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = function () {
+      if (typeof prev === "function") try { prev(); } catch (_) {}
+      cb();
+    };
+    // script may already be loading from oyun.html
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    }
+  }
+  function destroyYtPlayer() {
+    ytWantPlay = false;
+    try {
+      if (ytPlayer && typeof ytPlayer.destroy === "function") ytPlayer.destroy();
+    } catch (_) {}
+    ytPlayer = null;
+    ytReady = false;
+    const wrap = document.getElementById("ytPlayerWrap");
+    if (wrap) {
+      wrap.style.display = "none";
+      wrap.innerHTML = '<div id="ytPlayer"></div>';
+    }
   }
   function stopMusicLocal() {
     if (musicAudio) {
       try { musicAudio.pause(); } catch (_) {}
       try { musicAudio.currentTime = 0; } catch (_) {}
     }
+    try {
+      if (ytPlayer && typeof ytPlayer.pauseVideo === "function") ytPlayer.pauseVideo();
+      if (ytPlayer && typeof ytPlayer.stopVideo === "function") ytPlayer.stopVideo();
+    } catch (_) {}
+  }
+  function createYtPlayer(videoId, autoplay) {
+    const wrap = document.getElementById("ytPlayerWrap");
+    if (wrap) {
+      wrap.style.display = "block";
+      wrap.innerHTML = '<div id="ytPlayer"></div>';
+    }
+    ytReady = false;
+    ytVideoId = videoId;
+    ytWantPlay = !!autoplay;
+    ensureYtApi(() => {
+      try {
+        if (ytPlayer && typeof ytPlayer.destroy === "function") {
+          try { ytPlayer.destroy(); } catch (_) {}
+        }
+      } catch (_) {}
+      ytPlayer = new YT.Player("ytPlayer", {
+        height: "120",
+        width: "100%",
+        videoId: videoId,
+        playerVars: {
+          autoplay: autoplay ? 1 : 0,
+          controls: 1,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          origin: location.origin || undefined,
+        },
+        events: {
+          onReady: (e) => {
+            ytReady = true;
+            applyMusicVol();
+            if (ytWantPlay) {
+              try {
+                e.target.setVolume(Math.round(getMusicVol() * 100));
+                e.target.playVideo();
+              } catch (_) {}
+            }
+          },
+          onError: (e) => {
+            console.warn("YT error", e && e.data);
+            setMusicLabel("YouTube açılamadı (engelli / bölgesel)");
+            chatAdd("♫ YouTube video açılamadı — başka link dene", "sys");
+          },
+        },
+      });
+    });
+  }
+  function playYoutube(videoId, fromRemote) {
+    musicMode = "yt";
+    musicRemote = !!fromRemote;
+    // MP3'ü kes
+    if (musicAudio) {
+      try { musicAudio.pause(); } catch (_) {}
+    }
+    createYtPlayer(videoId, true);
+    setMusicLabel("▶ YouTube " + videoId + (fromRemote ? " · odadan" : " · çalıyor"));
   }
   async function playMusicFromSrc(src, name, fromRemote) {
     stopMusicLocal();
+    musicMode = "file";
     musicRemote = !!fromRemote;
+    try {
+      destroyYtPlayer();
+    } catch (_) {}
     try {
       musicAudio = new Audio(src);
       musicAudio.loop = true;
@@ -2935,32 +3072,54 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       musicAudio.volume = getMusicVol();
       applyMusicVol();
       await musicAudio.play();
-      // play sonrası tekrar uygula (bazı tarayıcılar sıfırlar)
       musicAudio.volume = getMusicVol();
-      const nameEl = document.getElementById("musicName");
-      if (nameEl) nameEl.textContent = (name || "Müzik") + (fromRemote ? " · odadan" : "");
+      setMusicLabel("▶ " + (name || "Müzik") + (fromRemote ? " · odadan çalıyor" : " · çalıyor"));
     } catch (err) {
       console.warn("music play", err);
     }
   }
-  const _musicChunks = Object.create(null); // id -> {parts, total, name}
-
+  function broadcastYt(action, videoId) {
+    if (!window.OriginsSync || !OriginsSync.pushMusic) {
+      chatAdd("Oda bağlı değil — YouTube sadece sende", "sys");
+      return;
+    }
+    if (!OriginsSync.isConnected || !OriginsSync.isConnected()) {
+      chatAdd("Çevrimiçi değil — önce ağa bağlan", "sys");
+      return;
+    }
+    try {
+      if (action === "play") {
+        OriginsSync.pushMusic({
+          action: "yt_play",
+          videoId: videoId,
+          name: "YouTube",
+        });
+        chatAdd("♫ YouTube odaya gönderildi", "sys");
+      } else {
+        OriginsSync.pushMusic({ action: "yt_stop" });
+      }
+    } catch (e) {
+      chatAdd("YouTube paylaşım hata: " + (e.message || e), "sys");
+    }
+  }
   function broadcastMusic(action) {
+    // Eski MP3 yolu
     if (!window.OriginsSync || !OriginsSync.pushMusic) {
       chatAdd("Oda bağlı değil — müzik sadece sende çalıyor", "sys");
+      return;
+    }
+    if (!OriginsSync.isConnected || !OriginsSync.isConnected()) {
+      chatAdd("Çevrimiçi değil — önce ağa bağlan", "sys");
       return;
     }
     try {
       if (action === "play") {
         if (!musicDataUrl) {
-          chatAdd("Müzik henüz yüklenmedi — dosyayı tekrar seç", "sys");
+          chatAdd("MP3 henüz yüklenmedi", "sys");
           return;
         }
-        if (musicDataUrl.length > 4e6) {
-          chatAdd("Dosya çok büyük (4MB+). Daha kısa loop kullan.", "sys");
-        }
         const id = "m" + Date.now().toString(36);
-        const CHUNK = 12000; // MQTT güvenli
+        const CHUNK = 12000;
         const total = Math.ceil(musicDataUrl.length / CHUNK) || 1;
         OriginsSync.pushMusic({
           action: "play_begin",
@@ -2979,12 +3138,12 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           });
         }
         OriginsSync.pushMusic({ action: "play_end", id: id, total: total, len: musicDataUrl.length });
-        chatAdd("♫ Müzik odaya gönderiliyor (" + total + " parça, ~" + Math.round(musicDataUrl.length / 1000) + "KB)…", "sys");
+        chatAdd("♫ MP3 odaya gönderiliyor (" + total + " parça)…", "sys");
       } else {
         OriginsSync.pushMusic({ action: "stop" });
+        OriginsSync.pushMusic({ action: "yt_stop" });
       }
     } catch (e) {
-      console.warn(e);
       chatAdd("Müzik paylaşımı hata: " + (e.message || e), "sys");
     }
   }
@@ -2992,24 +3151,38 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   document.getElementById("musicFile")?.addEventListener("change", (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
+    if (file.size > MUSIC_MAX_FILE) {
+      alert("MP3 en fazla 30 MB. YouTube linki kullanırsan sınır yok.");
+      e.target.value = "";
+      return;
+    }
     musicFileName = file.name || "Müzik";
+    musicDataUrl = null;
+    musicMode = "file";
+    ytVideoId = null;
     if (musicObjectUrl) {
       try { URL.revokeObjectURL(musicObjectUrl); } catch (_) {}
     }
     stopMusicLocal();
+    setMusicLabel(musicFileName + " · yükleniyor…");
     musicObjectUrl = URL.createObjectURL(file);
-    // data URL for room share
     const reader = new FileReader();
     reader.onload = () => {
       musicDataUrl = reader.result;
-      const nameEl = document.getElementById("musicName");
-      if (nameEl) nameEl.textContent = musicFileName + " (oda ile paylaşılır)";
+      const mb = (file.size / (1024 * 1024)).toFixed(1);
+      setMusicLabel(musicFileName + " · hazır (" + mb + " MB)");
+    };
+    reader.onerror = () => {
+      musicDataUrl = null;
+      setMusicLabel("Yükleme başarısız");
     };
     reader.readAsDataURL(file);
     musicAudio = new Audio(musicObjectUrl);
     musicAudio.loop = true;
+    musicAudio.setAttribute("data-origins-music", "1");
     applyMusicVol();
   });
+
   document.getElementById("musicVolume")?.addEventListener("input", (e) => {
     try { localStorage.setItem("origins_music_vol", e.target.value); } catch (_) {}
     applyMusicVol();
@@ -3023,32 +3196,56 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     } catch (_) {}
     applyMusicVol();
   })();
-  // periyodik: kayan ses seviyesi kaçmasın
-  setInterval(() => { try { applyMusicVol(); } catch (_) {} }, 800);
+  setInterval(() => { try { applyMusicVol(); } catch (_) {} }, 1000);
+
   document.getElementById("musicPlay")?.addEventListener("click", async () => {
     if (!isDm()) { alert("Oda müziğini sadece DM başlatır."); return; }
-    if (!musicDataUrl && !musicAudio) {
-      alert("Önce müzik dosyası seç ve yüklenmesini bekle");
-      return;
-    }
-    // dataUrl yoksa oku bitmemiş olabilir
-    if (!musicDataUrl) {
-      alert("Dosya hâlâ yükleniyor — 1 sn sonra tekrar dene");
-      return;
-    }
+    const urlInput = document.getElementById("musicYoutubeUrl");
+    const url = (urlInput && urlInput.value || "").trim();
+    const vid = extractYoutubeId(url);
+    getAudio();
     applyMusicVol();
+
+    // YouTube öncelikli
+    if (vid) {
+      ytVideoId = vid;
+      musicMode = "yt";
+      playYoutube(vid, false);
+      broadcastYt("play", vid);
+      return;
+    }
+    if (url && !vid) {
+      alert("Geçerli bir YouTube linki değil.\nÖrnek: https://www.youtube.com/watch?v=…");
+      return;
+    }
+    // MP3 yedek
+    if (!musicDataUrl && !musicAudio) {
+      alert("YouTube linki yapıştır veya MP3 seç.");
+      return;
+    }
+    if (!musicDataUrl) {
+      alert("MP3 hâlâ yükleniyor — biraz bekle");
+      return;
+    }
     try {
-      getAudio(); // unlock
-      if (musicAudio) await musicAudio.play();
-      else await playMusicFromSrc(musicDataUrl, musicFileName, false);
+      if (musicAudio) {
+        musicAudio.volume = getMusicVol();
+        await musicAudio.play();
+      } else {
+        await playMusicFromSrc(musicDataUrl, musicFileName, false);
+      }
+      setMusicLabel("▶ " + (musicFileName || "Müzik") + " · çalıyor");
       broadcastMusic("play");
     } catch (err) {
-      alert("Çalınamadı — tarayıcı etkileşimi gerekebilir");
+      alert("Çalınamadı — tarayıcı engellemiş olabilir");
     }
   });
+
   document.getElementById("musicStop")?.addEventListener("click", () => {
     stopMusicLocal();
+    try { destroyYtPlayer(); } catch (_) {}
     broadcastMusic("stop");
+    setMusicLabel((ytVideoId ? "YouTube" : (musicFileName || "Müzik")) + " · durdu");
     chatAdd("♫ Müzik durdu (oda)", "sys");
   });
 
@@ -3201,7 +3398,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       ambBtn.title = "Ambiyans sadece DM";
     }
     // Müzik çal/durdur/dosya — DM (oda müziği)
-    ["musicFile", "musicPlay", "musicStop"].forEach((id) => {
+    ["musicFile", "musicPlay", "musicStop", "musicYoutubeUrl"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) {
         el.disabled = !dm;
@@ -3224,6 +3421,26 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     try {
       if (window.OriginsSync && OriginsSync.clientId && msg.from === OriginsSync.clientId()) return;
     } catch (_) {}
+
+    // YouTube oda senkronu
+    if (msg.action === "yt_play" && msg.videoId) {
+      try {
+        getAudio();
+        playYoutube(msg.videoId, true);
+        chatAdd("♫ Odadan YouTube: " + esc(msg.videoId), "sys");
+      } catch (e) {
+        console.warn(e);
+      }
+      return;
+    }
+    if (msg.action === "yt_stop") {
+      try {
+        stopMusicLocal();
+        destroyYtPlayer();
+        setMusicLabel("Oda müziği durdu");
+      } catch (_) {}
+      return;
+    }
 
     // Chunked music assemble (begin / chunk / end)
     if (msg.action === "play_begin") {

@@ -2410,3 +2410,8 @@ body:not(.is-dm) #sfxVolume {
   pointer-events: auto !important;
   filter: none !important;
 }
+
+body:not(.is-dm) #musicYoutubeUrl {
+  opacity: 0.45;
+  pointer-events: none;
+}
