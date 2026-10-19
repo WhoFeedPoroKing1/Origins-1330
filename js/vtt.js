@@ -850,24 +850,65 @@ function initVTT() {
   function canControlToken(tok) {
     if (!tok) return false;
     if (isDm()) return true;
-    // Oyuncu: üstten "Ben" ile karakter seçmeden hiçbir token kontrol edilemez
+    // Oyuncu: üstten "Ben" ile karakter seç
     if (!activePlayerId) return false;
     const me = loadRoster().find((c) => c.id === activePlayerId);
     if (!me) return false;
-    // Kendi karakter token’ı (refId eşleşmesi)
-    if (String(tok.refId) === String(activePlayerId)) return true;
-    // Yoldaş: form ally + aynı refId veya owner = oyuncu adı
+    const myId = String(activePlayerId);
+    const myName = String(me.name || "").trim();
+    // Kendi karakter token’ı
+    if (tok.refId != null && String(tok.refId) === myId) return true;
+    // Yoldaş (ally) — aynı refId veya sahip adı
     if (tok.form === "ally") {
-      if (String(tok.refId) === String(activePlayerId)) return true;
-      if (tok.owner && tok.owner === me.name) return true;
+      if (tok.refId != null && String(tok.refId) === myId) return true;
+      if (tok.owner && myName && String(tok.owner) === myName) return true;
+      // isim "X · Yoldaş" ise
+      if (myName && tok.name && String(tok.name).indexOf(myName) === 0) return true;
     }
-    // Açıkça oyuncuya atanmış token
-    if (tok.owner && tok.owner === me.name) return true;
+    // Sahip alanı
+    if (tok.owner && myName && String(tok.owner) === myName) return true;
+    // İsim birebir (tek karakter token)
+    if (myName && tok.name && String(tok.name) === myName && tok.form !== "ally") return true;
     return false;
   }
 
   function canEditToken(tok) {
     return canControlToken(tok);
+  }
+
+  /** Oyuncu kendi token / yoldaşını silebilir; DM hepsini */
+  function canDeleteToken(tok) {
+    if (!tok) return false;
+    if (isDm()) return true;
+    return canControlToken(tok);
+  }
+
+  function deleteTokenById(id, opts) {
+    opts = opts || {};
+    const tok = tokens.find((x) => x.id === id);
+    if (!tok) return false;
+    if (!canDeleteToken(tok)) {
+      if (!opts.silent) alert("Sadece kendi token’ını veya yoldaşını silebilirsin. Üstten “Ben” ile karakterini seç.");
+      return false;
+    }
+    // Yoldaş silinirken sadece o; karakter silinirken isteğe bağlı yoldaşı da
+    const alsoAlly = !!opts.withAlly && tok.form !== "ally";
+    tokens = tokens.filter((x) => {
+      if (x.id === tok.id) return false;
+      if (alsoAlly && x.form === "ally" && String(x.refId) === String(tok.refId)) return false;
+      return true;
+    });
+    if (selectedId === id) selectedId = null;
+    if (atkFromId === id) atkFromId = null;
+    if (atkToId === id) atkToId = null;
+    initiative = (initiative || []).filter((r) => r.id !== id);
+    saveTokens();
+    renderTokens();
+    renderInspector();
+    renderHP();
+    try { renderInit(); } catch (_) {}
+    try { scheduleSync(); } catch (_) {}
+    return true;
   }
 
 
@@ -1101,7 +1142,9 @@ function initVTT() {
       portrait = data.portrait || portrait;
     }
     let ownerName = "";
-    if (kind === "p" && activePlayerId && String(data.id) === String(activePlayerId)) {
+    if (kind === "p") {
+      ownerName = data.name || "";
+    } else if (kind === "p" && activePlayerId && String(data.id) === String(activePlayerId)) {
       ownerName = data.name || "";
     } else if (activePlayerId) {
       const me = loadRoster().find((c) => c.id === activePlayerId);
@@ -1405,16 +1448,54 @@ function initVTT() {
     redrawOverlays();
   }
 
-  document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
+  
+  // Klavye: Delete / Backspace — kendi token/yoldaş
+  document.addEventListener("keydown", (e) => { /* keydown-token-del */
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target.isContentEditable) return;
+    if (!selectedId) return;
+    const tok = tokens.find((x) => x.id === selectedId);
+    if (!tok || !canDeleteToken(tok)) return;
+    e.preventDefault();
+    if (!confirm((tok.form === "ally" ? "Yoldaş" : "Token") + " silinsin mi?")) return;
+    deleteTokenById(tok.id, { silent: true });
+  });
+
+document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   document.getElementById("clearTokens")?.addEventListener("click", () => {
-    if (!isDm()) return alert("Token silme sadece DM.");
-    if (!confirm("Tüm tokenlar silinsin mi?")) return;
-    tokens = [];
-    selectedId = null;
+    if (isDm()) {
+      if (!confirm("Tüm tokenlar silinsin mi?")) return;
+      tokens = [];
+      selectedId = null;
+      atkFromId = null;
+      atkToId = null;
+      saveTokens();
+      renderTokens();
+      renderInspector();
+      renderHP();
+      try { scheduleSync(); } catch (_) {}
+      return;
+    }
+    // Oyuncu: sadece kendi token + yoldaşlarını sil
+    if (!activePlayerId) {
+      alert("Önce üstten “Ben” ile kendi karakterini seç.");
+      return;
+    }
+    const mine = tokens.filter((t) => canDeleteToken(t));
+    if (!mine.length) {
+      alert("Masada senin token’ın yok.");
+      return;
+    }
+    if (!confirm("Kendi token’ların ve yoldaşların silinsin mi? (" + mine.length + " adet)")) return;
+    const ids = new Set(mine.map((t) => t.id));
+    tokens = tokens.filter((t) => !ids.has(t.id));
+    if (selectedId && ids.has(selectedId)) selectedId = null;
     saveTokens();
     renderTokens();
     renderInspector();
     renderHP();
+    try { scheduleSync(); } catch (_) {}
   });
 
   // ── Inspector ──
@@ -1474,11 +1555,19 @@ function initVTT() {
       <button type="button" class="tbtn" id="tokDel" style="width:100%;margin-top:0.4rem;color:#e05a5a;border-color:rgba(224,90,90,0.4)">Token sil</button>
     </div>`;
     const allowEdit = canEditToken(t) || isDm();
+    const allowDel = canDeleteToken(t);
     if (!allowEdit) {
       box.querySelectorAll("input, select, button").forEach((node) => {
+        if (node.id === "tokDel" && allowDel) return; // silme kendi tokenunda açık
         node.disabled = true;
         node.title = "Bu token senin kontrolünde değil";
       });
+    }
+    const delBtn = document.getElementById("tokDel");
+    if (delBtn) {
+      delBtn.disabled = !allowDel;
+      delBtn.style.display = allowDel ? "" : "none";
+      delBtn.textContent = t.form === "ally" ? "Yoldaşı sil" : "Token’ı sil";
     }
     document.getElementById("tokOwner")?.addEventListener("change", (e) => {
       if (!isDm()) return;
@@ -1593,14 +1682,13 @@ function initVTT() {
       });
     }
     document.getElementById("tokDel")?.addEventListener("click", () => {
-      if (!canEditToken(t) && !isDm()) return alert("Bu token’ı silemezsin.");
-      tokens = tokens.filter((x) => x.id !== t.id);
-      selectedId = null;
-      saveTokens();
-      renderTokens();
-      renderInspector();
-      renderHP();
-      scheduleSync();
+      if (!canDeleteToken(t)) {
+        alert("Sadece kendi token’ını veya yoldaşını silebilirsin. Üstten “Ben” ile karakterini seç.");
+        return;
+      }
+      const label = t.form === "ally" ? "Yoldaş" : "Token";
+      if (!confirm(label + " silinsin mi? (" + (t.name || "?") + ")")) return;
+      deleteTokenById(t.id, { silent: true });
     });
     document.getElementById("tokDeathSave")?.addEventListener("click", () => {
       rollDeathSave(t);
@@ -3932,9 +4020,15 @@ function initVTT() {
       ac: cr.ac ?? 13,
       damage: cr.damage || "1d8",
       statuses: [],
-      owner: base.owner || "",
+      owner: base.owner || (loadRoster().find((c) => String(c.id) === String(base.refId)) || {}).name || "",
       portrait: cr.portrait || "",
+      faction: base.faction || "ally",
     };
+    // Yoldaş her zaman çağıranın kontrolünde
+    if (!ally.owner && activePlayerId) {
+      const me = loadRoster().find((c) => c.id === activePlayerId);
+      if (me) ally.owner = me.name;
+    }
     ally._spawn = true;
     tokens.push(ally);
     selectedId = ally.id;
@@ -6176,6 +6270,13 @@ function initVTT() {
         selectedId = tk.id;
         renderTokens();
         renderInspector();
+      } else if (act === "delete") {
+        if (!canDeleteToken(tk)) {
+          alert("Sadece kendi token’ını veya yoldaşını silebilirsin. Üstten “Ben” ile karakterini seç.");
+          return;
+        }
+        if (!confirm((tk.form === "ally" ? "Yoldaş" : "Token") + " silinsin mi?")) return;
+        deleteTokenById(tk.id, { silent: true });
       } else if (act === "attack") {
         // Saldıran kendi token’ı olmalı; hedef herkes olabilir
         if (atkFromId && atkFromId !== tk.id) {
