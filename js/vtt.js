@@ -591,6 +591,31 @@ function initVTT() {
     e.target.value = "";
   });
 
+  
+  document.getElementById("mapResendBtn")?.addEventListener("click", () => {
+    if (!isDm()) return;
+    let dataUrl = null;
+    try {
+      const sc = currentScene();
+      dataUrl = (sc && sc.mapBg) || localStorage.getItem(S.mapBg) || null;
+    } catch (_) {}
+    if (!dataUrl && bgImg && bgImg.src && bgImg.src.startsWith("data:")) dataUrl = bgImg.src;
+    if (!dataUrl) {
+      alert("Gönderilecek map yok — önce map yükle.");
+      return;
+    }
+    if (!window.OriginsSync || !OriginsSync.isConnected || !OriginsSync.isConnected()) {
+      alert("Önce çevrimiçi ol (Masada bağlan).");
+      return;
+    }
+    try {
+      OriginsSync.pushMapImage(dataUrl, { mapOX: mapOX, mapOY: mapOY, mapScale: mapScale });
+      chatAdd("Map odaya tekrar gönderiliyor…", "sys");
+    } catch (e) {
+      alert("Gönderilemedi: " + (e.message || e));
+    }
+  });
+
   document.getElementById("mapClearBg")?.addEventListener("click", () => {
     if (!isDm()) return;
     if (!confirm("Map herkes için silinsin mi?")) return;
@@ -1791,6 +1816,17 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     return sessionStorage.getItem(S.dm) === "1";
   }
 
+  function syncDmBodyClass() {
+    try {
+      document.body.classList.toggle("is-dm", !!isDm());
+      if (typeof applyAudioPermissions === "function") applyAudioPermissions();
+    } catch (_) {}
+  }
+  setInterval(syncDmBodyClass, 2000);
+  document.addEventListener("DOMContentLoaded", syncDmBodyClass);
+  setTimeout(syncDmBodyClass, 300);
+
+
   function showDm(on) {
     const lock = document.getElementById("dmLock");
     const panel = document.getElementById("dmPanel");
@@ -2907,7 +2943,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           chatAdd("Dosya çok büyük (4MB+). Daha kısa loop kullan.", "sys");
         }
         const id = "m" + Date.now().toString(36);
-        const CHUNK = 32000; // MQTT limitine uygun
+        const CHUNK = 12000; // MQTT güvenli
         const total = Math.ceil(musicDataUrl.length / CHUNK) || 1;
         OriginsSync.pushMusic({
           action: "play_begin",
@@ -2957,6 +2993,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   });
   document.getElementById("musicVolume")?.addEventListener("input", applyMusicVol);
   document.getElementById("musicPlay")?.addEventListener("click", async () => {
+    if (!isDm()) { alert("Oda müziğini sadece DM başlatır."); return; }
     if (!musicDataUrl && !musicAudio) {
       alert("Önce müzik dosyası seç ve yüklenmesini bekle");
       return;
@@ -3109,7 +3146,42 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
 
 
 
-  function handleRemoteMusic(msg) {
+  
+  function applyAudioPermissions() {
+    const dm = typeof isDm === "function" ? isDm() : false;
+    // Ambiyans: sadece DM
+    const ambRoot = document.getElementById("ambPanel") || document.getElementById("ambientPanel");
+    document.querySelectorAll(".amb-btn, #ambStop, #ambVolume, #ambIntensity, #ambShareRoom, #ambClearCustom").forEach((el) => {
+      if (!el) return;
+      el.disabled = !dm;
+      if (!dm) el.title = "Sadece DM ambiyans kontrol eder";
+    });
+    document.querySelectorAll("[data-amb-file]").forEach((el) => {
+      el.disabled = !dm;
+    });
+    // ambient open button: oyuncu sadece kendi ses panellerini kullanır; ambiyans paneli DM
+    const ambBtn = document.getElementById("ambientBtn");
+    if (ambBtn && !dm) {
+      ambBtn.title = "Ambiyans sadece DM";
+    }
+    // Müzik çal/durdur/dosya — DM (oda müziği)
+    ["musicFile", "musicPlay", "musicStop"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.disabled = !dm;
+        if (!dm) el.title = "Oda müziğini sadece DM yönetir";
+      }
+    });
+    // Ses seviyesi herkes ayarlayabilir
+    const mv = document.getElementById("musicVolume");
+    if (mv) mv.disabled = false;
+  }
+  try { applyAudioPermissions(); } catch (_) {}
+  // DM giriş/çıkış sonrası
+  document.getElementById("dmLockBtn")?.addEventListener("click", () => setTimeout(() => { try { applyAudioPermissions(); } catch (_) {} }, 100));
+  document.getElementById("dmUnlockBtn")?.addEventListener("click", () => setTimeout(() => { try { applyAudioPermissions(); } catch (_) {} }, 100));
+
+function handleRemoteMusic(msg) {
     if (!msg) return;
     try {
       if (window.OriginsSync && OriginsSync.clientId && msg.from === OriginsSync.clientId()) return;

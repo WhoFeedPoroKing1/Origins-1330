@@ -149,60 +149,91 @@
   function pushMapImage(dataUrl, meta) {
     if (!dataUrl || !connected) return false;
     meta = meta || {};
-    const id = "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const id = "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const str = String(dataUrl);
-    const total = Math.max(1, Math.ceil(str.length / MAP_CHUNK));
-    for (let i = 0; i < total; i++) {
-      const ok = publish(TOPIC, {
-        type: "map_chunk",
-        id: id,
-        i: i,
-        total: total,
-        data: str.slice(i * MAP_CHUNK, (i + 1) * MAP_CHUNK),
-        mapOX: meta.mapOX,
-        mapOY: meta.mapOY,
-        mapScale: meta.mapScale,
-        from: ensureClientId(),
-        t: Date.now(),
-      });
-      if (!ok) console.warn("map chunk fail", i);
-    }
-    // küçük işaret: map var
-    publish(TOPIC, {
-      type: "map_ready",
+    const CHUNK = 12000;
+    const total = Math.max(1, Math.ceil(str.length / CHUNK));
+    // begin
+    enqueuePublish(TOPIC, {
+      type: "map_chunk",
+      phase: "begin",
       id: id,
       total: total,
+      len: str.length,
       mapOX: meta.mapOX,
       mapOY: meta.mapOY,
       mapScale: meta.mapScale,
       from: ensureClientId(),
       t: Date.now(),
-    });
+    }, 20);
+    for (let i = 0; i < total; i++) {
+      enqueuePublish(TOPIC, {
+        type: "map_chunk",
+        phase: "data",
+        id: id,
+        i: i,
+        total: total,
+        data: str.slice(i * CHUNK, (i + 1) * CHUNK),
+        from: ensureClientId(),
+        t: Date.now(),
+      }, 40);
+    }
+    enqueuePublish(TOPIC, {
+      type: "map_chunk",
+      phase: "end",
+      id: id,
+      total: total,
+      len: str.length,
+      mapOX: meta.mapOX,
+      mapOY: meta.mapOY,
+      mapScale: meta.mapScale,
+      from: ensureClientId(),
+      t: Date.now(),
+    }, 40);
     return true;
   }
 
+
   function handleMapChunk(msg) {
     if (!msg || !msg.id) return;
-    if (! _mapParts[msg.id]) {
-      _mapParts[msg.id] = { total: msg.total || 1, parts: [], meta: msg };
+    if (msg.phase === "begin" || (msg.total && msg.i == null && !msg.data)) {
+      _mapParts[msg.id] = {
+        total: msg.total || 1,
+        parts: [],
+        meta: msg,
+        len: msg.len || 0,
+      };
+      return;
+    }
+    if (!_mapParts[msg.id]) {
+      _mapParts[msg.id] = { total: msg.total || 1, parts: [], meta: msg, len: msg.len || 0 };
     }
     const b = _mapParts[msg.id];
-    b.parts[msg.i] = msg.data || "";
-    b.meta = msg;
+    if (msg.phase === "data" || typeof msg.i === "number") {
+      b.parts[msg.i] = msg.data || "";
+      b.meta = Object.assign({}, b.meta, msg);
+    }
+    if (msg.phase === "end" || (msg.phase !== "data" && msg.phase !== "begin" && msg.data == null && msg.total)) {
+      // fall through to check complete
+    }
+    // complete?
     let full = true;
-    for (let i = 0; i < b.total; i++) {
+    const total = b.total || msg.total || 0;
+    for (let i = 0; i < total; i++) {
       if (typeof b.parts[i] !== "string") { full = false; break; }
     }
     if (!full) return;
     const dataUrl = b.parts.join("");
+    const meta = b.meta || msg;
     delete _mapParts[msg.id];
+    if (!dataUrl || dataUrl.length < 50) return;
     if (onState) {
       try {
         onState({
           mapBg: dataUrl,
-          mapOX: b.meta.mapOX,
-          mapOY: b.meta.mapOY,
-          mapScale: b.meta.mapScale,
+          mapOX: meta.mapOX,
+          mapOY: meta.mapOY,
+          mapScale: meta.mapScale,
         }, { from: msg.from, type: "map" });
       } catch (e) {
         console.warn("map apply", e);
@@ -210,13 +241,33 @@
     }
   }
 
-  function publish(topic, obj) {
+
+
+  const _pubQueue = [];
+  let _pubBusy = false;
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+  async function drainPubQueue() {
+    if (_pubBusy) return;
+    _pubBusy = true;
+    while (_pubQueue.length) {
+      const job = _pubQueue.shift();
+      try { _publishNow(job.topic, job.obj); } catch (_) {}
+      await sleep(job.delay != null ? job.delay : 35);
+    }
+    _pubBusy = false;
+  }
+  function enqueuePublish(topic, obj, delay) {
+    _pubQueue.push({ topic: topic, obj: obj, delay: delay });
+    drainPubQueue();
+  }
+  function _publishNow(topic, obj) {
     if (!client || !connected) return false;
     try {
       const payload = JSON.stringify(obj);
-      // ~200KB üstü gönderme
-      if (payload.length > 200000) {
-        console.warn("OriginsSync: mesaj çok büyük, atlandı", obj.type);
+      if (payload.length > 180000) {
+        console.warn("OriginsSync: mesaj çok büyük", obj.type || obj.action, payload.length);
         return false;
       }
       client.publish(topic, payload, { qos: 0, retain: false });
@@ -226,6 +277,11 @@
       return false;
     }
   }
+
+  function publish(topic, obj) {
+    return _publishNow(topic, obj);
+  }
+
 
   function handleMessage(topic, raw) {
     let msg;
@@ -489,14 +545,18 @@
     publish(TOPIC, Object.assign({ type: "ruler", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload));
   }
   function pushMusic(payload) {
-    // play_chunk / play_begin / play_end / stop — data alanı korunur
-    const p = Object.assign({}, payload);
-    // tek seferlik dev dataUrl gönderme (chunk kullan)
-    if (p.dataUrl && String(p.dataUrl).length > 4000 && p.action !== "play_chunk") {
+    const p = Object.assign({ type: "music", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload);
+    // chunk data büyükse kuyruğa
+    if (p.action === "play_chunk" || p.action === "play_begin" || p.action === "play_end") {
+      enqueuePublish(TOPIC, p, p.action === "play_chunk" ? 40 : 25);
+      return;
+    }
+    if (p.dataUrl && String(p.dataUrl).length > 4000) {
       delete p.dataUrl;
     }
-    publish(TOPIC, Object.assign({ type: "music", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, p));
+    enqueuePublish(TOPIC, p, 20);
   }
+
 
   global.OriginsSync = {
     autoConnect: autoConnect,
