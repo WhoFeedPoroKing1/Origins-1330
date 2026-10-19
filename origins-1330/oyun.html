@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Origins — Masa</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/vtt.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo"><span>◆</span> ORIGINS</a>
+      <nav class="nav" id="nav">
+        <a href="index.html">DM</a>
+        <a href="evren.html">Evren</a>
+        <a href="hikaye.html">Hikâye</a>
+        <a href="karakter.html">Karakter</a>
+        <a href="oyun.html">Masa</a>
+        <a href="harita.html">Harita</a>
+      </nav>
+      <button class="menu-btn" id="menuBtn" type="button"><span></span><span></span></button>
+    </div>
+  </header>
+
+  <div class="vtt-shell">
+    <div class="vtt-toolbar">
+      <div class="grp">
+        <button type="button" class="tbtn active" data-tool="select">Seç / Taşı</button>
+        <button type="button" class="tbtn" data-tool="token">Token koy</button>
+        <button type="button" class="tbtn" data-tool="ruler">Cetvel</button>
+        <button type="button" class="tbtn" data-tool="pan">Kaydır</button>
+      </div>
+      <div class="sep"></div>
+      <div class="grp">
+        <select id="placeActor" class="tbtn" title="Oyuncu + DM kütüphanesi"></select>
+      </div>
+      <div class="sep"></div>
+      <div class="grp">
+        <label class="tbtn" style="display:flex;align-items:center;gap:0.35rem">Ben
+          <select id="activePlayer" style="max-width:140px"></select>
+        </label>
+      </div>
+      <div class="sep"></div>
+      <div class="grp">
+        <label class="tbtn dm-only" id="mapUploadLabel" style="display:none">Map <input type="file" id="mapUpload" accept="image/*" /></label>
+        <button type="button" class="tbtn dm-only" id="mapClearBg" style="display:none">Map sil</button>
+        <button type="button" class="tbtn" id="clearTokens">Token sil</button>
+        <button type="button" class="tbtn" id="openLibBtn">Kütüphane</button>
+        <span class="room-sep"></span>
+        <input type="text" id="displayName" class="tbtn" placeholder="Adın" maxlength="24" style="width:6.5rem" title="Odadaki görünen adın" />
+        <input type="text" id="roomCode" class="tbtn" placeholder="Oda kodu" maxlength="12" title="Host: Oda aç → yeni kod. Katıl: kodu yaz" style="width:6.5rem;text-transform:uppercase;letter-spacing:0.06em" />
+        <button type="button" class="tbtn" id="roomHost">Oda aç</button>
+        <button type="button" class="tbtn" id="roomJoin">Katıl</button>
+        <button type="button" class="tbtn" id="roomReconnect" title="Son odaya bağlan">↻</button>
+        <span id="roomStatus" style="font-size:0.65rem;color:#d4af37;margin-left:0.25rem"></span>
+        <button type="button" class="tbtn" id="ambientBtn" title="Ambiyans">♫</button>
+        <span class="room-sep dm-only" style="display:none"></span>
+        <button type="button" class="tbtn dm-only" id="btnDay" style="display:none" title="Gündüz">☀ Gündüz</button>
+        <button type="button" class="tbtn dm-only" id="btnNight" style="display:none" title="Gece — oyuncular 60 ft">🌙 Gece</button>
+        <button type="button" class="tbtn dm-only" id="btnBloodMoon" style="display:none" title="Kanlı Ay — kırmızı atmosfer">🔴 Kanlı Ay</button>
+        <button type="button" class="tbtn" id="exportSession" title="Oturum özeti">Export</button>
+        <button type="button" class="tbtn" id="shortcutHelp" title="Kısayollar">⌨</button>
+        <button type="button" class="tbtn" id="clearRuler">Cetvel sil</button>
+      </div>
+      <div class="sep"></div>
+      <div class="grp">
+        <button type="button" class="tbtn" id="zoomOut">−</button>
+        <button type="button" class="tbtn" id="zoomReset">1:1</button>
+        <button type="button" class="tbtn" id="zoomIn">+</button>
+      </div>
+      <span class="grid-info" id="gridInfo"></span>
+    </div>
+
+    <div class="vtt-main">
+      <aside class="vtt-side" id="sideLeft"><div class="side-resizer" id="resizeLeft" title="Sürükle"></div>
+        <h3>Sesler (mp3)</h3>
+        <div class="sfx-panel" id="sfxPanel">
+          <p style="font-size:0.62rem;color:#6b665c;line-height:1.35;margin:0 0 0.4rem">
+            Dosya yoksa geliştirilmiş sentez ses çalar. İstersen mp3 yükle veya <code>assets/sounds/</code> kullan.
+          </p>
+          <label class="sfx-row">Kılıç / vuruş <input type="file" data-sfx="hit" accept="audio/*" /></label>
+          <label class="sfx-row">Kritik <input type="file" data-sfx="crit" accept="audio/*" /></label>
+          <label class="sfx-row">Iska <input type="file" data-sfx="miss" accept="audio/*" /></label>
+          <label class="sfx-row">Kritik ıska <input type="file" data-sfx="critmiss" accept="audio/*" /></label>
+          <label class="sfx-row">Şifa <input type="file" data-sfx="heal" accept="audio/*" /></label>
+          <label class="sfx-row">Zar <input type="file" data-sfx="dice" accept="audio/*" /></label>
+          <label class="sfx-row">Yere düşüş <input type="file" data-sfx="downed" accept="audio/*" /></label>
+          <label class="sfx-row">Ses seviyesi
+            <input type="range" id="sfxVolume" min="0" max="100" value="55" />
+          </label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-top:0.35rem">
+            <button type="button" class="tbtn" data-sfx-test="hit">Vuruş</button>
+            <button type="button" class="tbtn" data-sfx-test="crit">Kritik</button>
+            <button type="button" class="tbtn" data-sfx-test="miss">Iska</button>
+            <button type="button" class="tbtn" data-sfx-test="heal">Şifa</button>
+            <button type="button" class="tbtn" data-sfx-test="dice">Zar</button>
+            <button type="button" class="tbtn" data-sfx-test="downed">Düşüş</button>
+          </div>
+          <button type="button" class="tbtn" id="sfxClear" style="width:100%;margin-top:0.3rem">Yüklenenleri sil</button>
+        </div>
+        <h3>Müzik (loop)</h3>
+        <div class="sfx-panel" id="musicPanel">
+          <label class="sfx-row">MP3 / ses
+            <input type="file" id="musicFile" accept="audio/*" />
+          </label>
+          <label class="sfx-row">Müzik sesi
+            <input type="range" id="musicVolume" min="0" max="100" value="40" />
+          </label>
+          <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
+            <button type="button" class="tbtn" id="musicPlay" style="flex:1">▶ Çal</button>
+            <button type="button" class="tbtn" id="musicStop" style="flex:1">⏹ Dur</button>
+          </div>
+          <p id="musicName" style="font-size:0.6rem;color:#6b665c;margin:0.35rem 0 0;word-break:break-all">Dosya seçilmedi</p>
+        </div>
+        <h3>Zar</h3>
+        <div class="dice-box">
+          <label>Atan</label>
+          <select id="rollerSelect" style="width:100%;margin-bottom:0.35rem"><option value="">GM</option></select>
+          <div class="row">
+            <label>Adet <input type="number" id="diceCount" min="1" max="8" value="1" style="width:2.4rem" /></label>
+            <label>Tür
+              <select id="diceSides">
+                <option value="4">d4</option><option value="6">d6</option><option value="8">d8</option>
+                <option value="10">d10</option><option value="12">d12</option>
+                <option value="20" selected>d20</option><option value="100">d100</option>
+              </select>
+            </label>
+          </div>
+          <div class="adv-row">
+            <button type="button" class="on" data-adv="normal">Normal</button>
+            <button type="button" data-adv="adv">Avantaj</button>
+            <button type="button" class="dis" data-adv="disadv">Dezavantaj</button>
+          </div>
+          <button type="button" class="btn btn-gold btn-sm" id="rollBtn" style="width:100%">Zar at</button>
+        </div>
+        <div class="dice-log" id="diceLog"></div>
+
+        <h3>İnisiyatif</h3>
+        <div class="init-list" id="initList"></div>
+        <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
+          <button type="button" class="btn btn-gold btn-sm" id="startBattle">Savaş</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="nextTurn">Sıra →</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="turnReadyBtn">Turum bitti</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="clearBattle">Temizle</button>
+        </div>
+        <div class="combat-hp" id="combatHpList"></div>
+
+        <h3>Saldırı</h3>
+        <div class="combat-panel">
+          <p style="font-size:0.62rem;color:#6b665c;margin:0 0 0.4rem;line-height:1.35">Sadece kendi token’ın saldırabilir (DM hariç).</p>
+          <label style="font-size:0.62rem;color:#6b665c">Saldıran</label>
+          <select id="atkFrom"></select>
+          <label style="font-size:0.62rem;color:#6b665c">Hedef</label>
+          <select id="atkTo"></select>
+          <button type="button" class="btn btn-gold btn-sm" id="atkRollBtn" style="width:100%;margin-bottom:0.35rem">Saldırı zarı</button>
+          <div class="fx-row">
+            <button type="button" data-fx="hit">Vuruş</button>
+            <button type="button" data-fx="crit">Kritik</button>
+            <button type="button" data-fx="miss">Iska</button>
+            <button type="button" data-fx="heal">İyileş</button>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="clearAtk" style="width:100%">Hedefi temizle</button>
+        </div>
+
+        <h3>Oda · çevrimiçi <span id="presenceCount" style="color:#d4af37;font-weight:600"></span></h3>
+        <div id="presenceList" class="presence-list"></div>
+        <h3>Sohbet &amp; log</h3>
+        <div class="chat-panel">
+          <div id="chatLog" class="chat-log"></div>
+          <div class="chat-row">
+            <input type="text" id="chatInput" maxlength="240" placeholder="Mesaj · /r 1d20+3 · /w isim metin" />
+            <button type="button" class="tbtn" id="chatSend">Gönder</button>
+          </div>
+        </div>
+
+        <p style="font-size:0.62rem;color:#6b665c;margin:0.5rem 0 0;line-height:1.35">
+          Token üstü: <span style="color:#e05a5a">● can</span>
+          <span style="color:#3d9e6f">● max</span>
+          <span style="color:#5b8def">● AC</span>
+          · Saldırı DC yerine hedef AC kullanılır · Kritik = 2× hasar
+        </p>
+      </aside>
+
+      <div class="vtt-board" id="vttBoard">
+        <div class="atm-overlay" id="atmOverlay" aria-hidden="true"></div>
+        <div class="atm-badge" id="atmBadge" style="display:none"></div>
+        <div class="action-bar" id="actionBar">
+          <span class="ab-label" id="actionBarName">Token seç</span>
+          <button type="button" class="ab-btn" id="abAttack" title="Saldırı">⚔ Saldır</button>
+                    <button type="button" class="ab-btn" id="abDoor" title="Yakın kapı">🚪 Kapı</button>
+          <button type="button" class="ab-btn" id="abDeath" title="Ölüm zarı">💀 Ölüm zarı</button>
+          <button type="button" class="ab-btn" id="abAlly" title="Yoldaş">🕊 Dostunu çağır</button>
+        </div>
+
+        <div class="vtt-world" id="vttWorld">
+          <img id="vttBg" alt="" style="display:none;position:absolute;left:0;top:0;max-width:none;pointer-events:none;user-select:none" />
+          <div id="vttFx" class="vtt-fx-layer"></div>
+          <div id="vttTokens" class="vtt-token-layer"></div>
+        </div>
+        <canvas id="vttGrid" class="vtt-overlay"></canvas>
+        <canvas id="vttDraw" class="vtt-overlay"></canvas>
+        <canvas id="vttFog" class="vtt-overlay"></canvas>
+        <button type="button" class="call-ally-btn" id="callAllyBtn">Dostunu çağır</button>
+        <div class="lib-drop-hint" id="libDropHint">Buraya bırak</div>
+        <div class="tok-menu" id="tokMenu" style="display:none">
+          <button type="button" data-act="attack">Saldır (hedef)</button>
+          <button type="button" data-act="status">Durum ekle</button>
+          <button type="button" data-act="hidden" class="dm-only-menu">Gizli aç/kapa</button>
+          <button type="button" data-act="init">İnisiyatife ekle</button>
+          <button type="button" data-act="select">Seç</button>
+        </div>
+      </div>
+
+      <aside class="vtt-side right" id="sideRight"><div class="side-resizer left" id="resizeRight" title="Sürükle"></div>
+        <h3>Sahneler / Map · DM</h3>
+        <div id="mapDmGate" style="font-size:0.72rem;color:#6b665c;margin-bottom:0.5rem">DM girişi gerekli</div>
+        <div id="mapDmControls" style="display:none">
+          <div id="sceneList" class="scene-list"></div>
+          <input type="text" id="sceneNameInput" placeholder="Yeni sahne adı" maxlength="40"
+            style="width:100%;margin:0.35rem 0;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.35rem;border-radius:5px;font-size:0.75rem" />
+          <button type="button" class="tbtn" id="sceneAdd" style="width:100%;margin-bottom:0.3rem">+ Sahne ekle</button>
+          <button type="button" class="tbtn" id="sceneSave" style="width:100%;margin-bottom:0.3rem">Sahneyi kaydet</button>
+          <button type="button" class="tbtn" id="sceneReset" style="width:100%;margin-bottom:0.45rem">Sahneyi sıfırla (token sil)</button>
+          <hr style="border:none;border-top:1px solid #252532;margin:0.5rem 0" />
+          <button type="button" class="tbtn" id="mapLockBtn" style="width:100%;margin-bottom:0.35rem">🔓 Map açık</button>
+          <hr style="border:none;border-top:1px solid #252532;margin:0.45rem 0" />
+          <p style="font-size:0.62rem;color:#6b665c;margin:0 0 0.35rem;line-height:1.35">
+            Sol sürükle = çiz · Sağ sürükle = gez. Fog = görünmez alan. Karanlık = görüş/ışık gerekir.
+          </p>
+          <button type="button" class="tbtn" id="fogDraw" style="width:100%;margin-bottom:0.25rem">Fog çiz</button>
+          <button type="button" class="tbtn" id="fogErase" style="width:100%;margin-bottom:0.25rem">Fog sil</button>
+          <button type="button" class="tbtn" id="fogClear" style="width:100%;margin-bottom:0.25rem">Fog temizle</button>
+          <button type="button" class="tbtn" id="darkDraw" style="width:100%;margin-bottom:0.25rem">Karanlık çiz</button>
+          <button type="button" class="tbtn" id="darkErase" style="width:100%;margin-bottom:0.25rem">Karanlık sil</button>
+          <button type="button" class="tbtn" id="darkClear" style="width:100%;margin-bottom:0.25rem">Karanlığı temizle</button>
+          <button type="button" class="tbtn" id="wallDraw" style="width:100%;margin-bottom:0.25rem">Duvar çiz</button>
+          <button type="button" class="tbtn" id="wallErase" style="width:100%;margin-bottom:0.25rem">Duvar sil (tek / seç)</button>
+          <button type="button" class="tbtn" id="wallClear" style="width:100%;margin-bottom:0.25rem">Tüm duvarları temizle</button>
+          <button type="button" class="tbtn" id="doorDraw" style="width:100%;margin-bottom:0.25rem">Kapı çiz</button>
+          <button type="button" class="tbtn" id="doorClear" style="width:100%;margin-bottom:0.25rem">Tüm kapıları temizle</button>
+          <div style="font-size:0.62rem;color:#6b665c;margin:0.2rem 0 0.4rem">Kapı ikonuna tıkla: aç/kapa. Oyuncu 5 ft; DM serbest.</div>
+          <label style="font-size:0.65rem;color:#6b665c;display:block;margin-bottom:0.2rem">Ölçek</label>
+          <input type="range" id="mapScaleSlider" min="0.15" max="5" step="0.05" value="1" style="width:100%;margin-bottom:0.3rem" />
+          <button type="button" class="tbtn" id="mapScaleReset" style="width:100%;margin-bottom:0.45rem">Map konumu sıfırla</button>
+          <p style="font-size:0.62rem;color:#6b665c;margin:0 0 0.5rem;line-height:1.4">
+            Map sürükle = karelere oturur (5 ft grid). Sınırsız sahne. Her sahnenin kendi map + token’ı var.
+          </p>
+          <button type="button" class="tbtn" id="exportState" style="width:100%;margin-bottom:0.3rem">Dışa aktar (JSON)</button>
+          <label class="tbtn" style="width:100%;display:block;text-align:center;cursor:pointer;margin-bottom:0.3rem">
+            İçe aktar
+            <input type="file" id="importState" accept="application/json,.json" hidden />
+          </label>
+        </div>
+
+        
+        <h3>Hava / ışık</h3>
+        <div class="preset-grid">
+          <button type="button" class="tbtn" id="wxPresetClear">Açık</button>
+          <button type="button" class="tbtn" id="wxPresetMist">Sis</button>
+                    <button type="button" class="tbtn" id="wxPresetMoon">Dolunay</button>
+        </div>
+        <h3>Ambiyans</h3>
+        <div class="preset-grid">
+          <button type="button" class="tbtn amb-btn" data-amb="liman">Liman</button>
+          <button type="button" class="tbtn amb-btn" data-amb="savas">Savaş</button>
+          <button type="button" class="tbtn amb-btn" data-amb="fisilti">Fısıltı</button>
+          <button type="button" class="tbtn amb-btn" data-amb="yagmur">Yağmur</button>
+          <button type="button" class="tbtn" id="ambStop">Durdur</button>
+        </div>
+        <label class="sfx-row" style="margin-top:0.35rem">Ambiyans sesi
+          <input type="range" id="ambVolume" min="0" max="100" value="35" />
+        </label>
+        <label class="sfx-row">Yoğunluk
+          <input type="range" id="ambIntensity" min="10" max="100" value="50" />
+        </label>
+        <p style="font-size:0.6rem;color:#6b665c;margin:0.25rem 0 0.35rem">Özel loop (mp3) — boşsa geliştirilmiş sentez çalar</p>
+        <label class="sfx-row">Liman <input type="file" data-amb-file="liman" accept="audio/*" /></label>
+        <label class="sfx-row">Savaş <input type="file" data-amb-file="savas" accept="audio/*" /></label>
+        <label class="sfx-row">Fısıltı <input type="file" data-amb-file="fisilti" accept="audio/*" /></label>
+        <label class="sfx-row">Yağmur <input type="file" data-amb-file="yagmur" accept="audio/*" /></label>
+        <button type="button" class="tbtn" id="ambClearCustom" style="width:100%;margin:0.3rem 0 0.5rem;font-size:0.68rem">Özel ambıyansları sil</button>
+        <label class="chk" style="display:flex;align-items:center;gap:0.35rem;font-size:0.68rem;color:#a8a396;margin-bottom:0.5rem">
+          <input type="checkbox" id="ambShareRoom" checked /> Odadaki herkese çal
+        </label>
+        <h3>Sahne paketi</h3>
+        <button type="button" class="tbtn" id="scenePackExport" style="width:100%;margin-bottom:0.25rem">Sahneyi indir (JSON)</button>
+        <label class="tbtn" style="width:100%;display:block;text-align:center;margin-bottom:0.45rem;cursor:pointer">Sahne yükle
+          <input type="file" id="scenePackImport" accept="application/json,.json" hidden />
+        </label>
+        <h3>Seçili token</h3>
+        <p style="font-size:0.62rem;color:#6b665c;margin:0 0 0.5rem">Üstten <strong>Kütüphane</strong> → sürükle-bırak.</p>
+        <div id="tokenInspector" style="margin-bottom:0.5rem"></div>
+
+        <h3>Can (HP)</h3>
+        <div class="hp-list" id="hpList"></div>
+
+        <h3>Notlar</h3>
+        <textarea id="sessionNotes" style="width:100%;min-height:64px;background:#0b0b10;border:1px solid #252532;color:#f2efe6;border-radius:5px;padding:0.45rem;font-size:0.78rem;font-family:inherit"></textarea>
+
+        <h3>DM</h3>
+        <div id="dmLock" class="dm-box">
+          <input type="password" id="dmPass" placeholder="1" />
+          <button type="button" class="btn btn-ghost btn-sm" id="dmUnlock" style="width:100%">Aç</button>
+        </div>
+        <div id="dmPanel" style="display:none">
+          <form class="en-form" id="enemyForm">
+            <label>Düşman</label><input id="enName" required maxlength="32" />
+            <label>Max HP</label><input type="number" id="enHp" value="20" min="1" />
+            <label>Not</label><textarea id="enNote" rows="2"></textarea>
+            <button type="submit" class="btn btn-gold btn-sm" style="width:100%">Ekle</button>
+          </form>
+          <div id="enemyList" style="margin-top:0.4rem"></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="dmLockBtn" style="width:100%;margin-top:0.35rem">Kilitle</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  
+  <!-- Attack roll overlay -->
+  <div class="atk-roll-ov" id="atkRollOv">
+    <div class="atk-roll-box">
+      <div class="atk-roll-title" id="atkRollLabel">Saldırı</div>
+      <div class="atk-roll-fields">
+        <label>Zar
+          <select id="atkDieSides">
+            <option value="4">d4</option><option value="6">d6</option>
+            <option value="8">d8</option><option value="10">d10</option>
+            <option value="12">d12</option><option value="20" selected>d20</option>
+          </select>
+        </label>
+        <label>Adet (max 4)
+          <input type="number" id="atkDieCount" min="1" max="4" value="1" />
+        </label>
+        <label>Mod (+/−)
+          <input type="number" id="atkMod" value="0" step="1" />
+        </label>
+      </div>
+      <div class="adv-row" id="atkAdvRow" style="display:flex;gap:0.35rem;margin-bottom:0.75rem">
+        <button type="button" class="on" data-atk-adv="normal" style="flex:1">Normal</button>
+        <button type="button" data-atk-adv="adv" style="flex:1">Avantaj</button>
+        <button type="button" class="dis" data-atk-adv="disadv" style="flex:1">Dezavantaj</button>
+      </div>
+      <p class="atk-rules" id="atkRulesText">
+        Hedef AC gizli · tutturursan isabet · 1 = krit ıska · max = kritik · sonra hasar veya can
+      </p>
+      <!-- DC used internally, hidden from players -->
+      <input type="hidden" id="atkDC" value="10" />
+      <div class="adv-row" id="atkIntentRow" style="display:flex;gap:0.35rem;margin-bottom:0.65rem">
+        <button type="button" class="on" data-atk-intent="damage" style="flex:1">Saldırı (hasar)</button>
+        <button type="button" data-atk-intent="heal" style="flex:1;border-color:#3d9e6f;color:#3d9e6f">İyileştir</button>
+      </div>
+      <div id="healOpts" style="display:none;margin-bottom:0.65rem">
+        <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;color:#a8a396;cursor:pointer;margin-bottom:0.35rem">
+          <input type="checkbox" id="healUseDice" checked /> Şifa için zar at
+        </label>
+        <label style="font-size:0.7rem;color:#6b665c;display:block">Sabit can (zar yoksa)
+          <input type="number" id="healFlat" value="5" min="1" style="width:100%;margin-top:0.25rem;background:#0b0b10;border:1px solid #252532;color:#f2efe6;padding:0.4rem;border-radius:5px" />
+        </label>
+        <label style="font-size:0.7rem;color:#6b665c;display:block;margin-top:0.35rem">Şifa formülü (zar açıksa)
+          <input type="text" id="healFormula" value="1d8" style="width:100%;margin-top:0.25rem;background:#0b0b10;border:1px solid #252532;color:#f2efe6;padding:0.4rem;border-radius:5px" />
+        </label>
+      </div>
+      <button type="button" class="btn btn-gold" id="atkRollGo" style="width:100%;margin-bottom:0.5rem">Zar at</button>
+      <div class="atk-roll-result" id="atkRollResult"></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="atkRollClose" style="width:100%;margin-top:0.75rem">Kapat</button>
+    </div>
+  </div>
+
+  
+  <div class="atk-roll-ov" id="dmgRollOv">
+    <div class="atk-roll-box">
+      <div class="atk-roll-title" id="dmgRollLabel">Hasar zarı</div>
+      <label style="font-size:0.7rem;color:#6b665c">Hasar formülü
+        <input type="text" id="dmgFormulaInput" value="1d6" style="width:100%;margin-top:0.25rem;background:#0b0b10;border:1px solid #252532;color:#f2efe6;padding:0.45rem;border-radius:5px" />
+      </label>
+      <p class="atk-rules">Kritikte hasar ×2 uygulanır.</p>
+      <button type="button" class="btn btn-gold" id="dmgRollGo" style="width:100%;margin-bottom:0.35rem">Hasar zarını at</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="dmgRollClose" style="width:100%">İptal</button>
+    </div>
+  </div>
+
+    <div class="status-modal-ov" id="statusModal">
+    <div class="status-modal">
+      <div class="atk-roll-title" id="stModalTitle">Durum ayarı</div>
+      <label>Kalan tur <input type="number" id="stTurns" min="0" max="99" value="3" /></label>
+      <label>Tur başı hasar <input type="number" id="stDmg" min="0" value="0" /></label>
+      <label>Tur başı can <input type="number" id="stHeal" min="0" value="0" /></label>
+      <label>Saldırı etkisi
+        <select id="stAdv">
+          <option value="">Yok</option>
+          <option value="adv">Avantaj</option>
+          <option value="disadv">Dezavantaj</option>
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" id="stSkip" /> Tur atlat (sersem vb.)</label>
+      <label>Atlanacak tur sayısı <input type="number" id="stSkipN" min="1" max="10" value="1" /></label>
+      <div style="display:flex;gap:0.4rem;margin-top:0.75rem">
+        <button type="button" class="btn btn-gold" id="stSave" style="flex:1">Kaydet</button>
+        <button type="button" class="btn btn-danger btn-sm" id="stRemove">Kaldır</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="stClose">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lib-bar" id="libBar">
+    <div class="lib-bar-head">
+      <strong>Kütüphane</strong>
+      <span class="lib-bar-hint">Kartı sürükle → map’e bırak</span>
+      <button type="button" class="tbtn" id="libClose">Kapat</button>
+    </div>
+    <div class="lib-bar-track" id="libDrawerList"></div>
+  </div>
+  <div class="dice-ov" id="diceOv">
+    <div class="dice-stage">
+      <div class="dice-who" id="diceWho">—</div>
+      <div class="dice-cubes" id="diceCubes"></div>
+      <div class="dice-total" id="diceTotal"></div>
+      <button type="button" class="btn btn-ghost dice-close" id="diceClose">Kapat</button>
+    </div>
+  </div>
+
+  <audio id="ambientAudio" loop preload="none"></audio>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/vtt.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      try {
+        initVTT();
+      } catch (err) {
+        console.error(err);
+        alert("Masa yüklenirken hata: " + err.message);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Origins — Dünya Haritası · 1330</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/world.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo"><span>◆</span> ORIGINS</a>
+      <nav class="nav" id="nav">
+        <a href="index.html">DM</a>
+        <a href="evren.html">Evren</a>
+        <a href="hikaye.html">Hikâye</a>
+        <a href="karakter.html">Karakter</a>
+        <a href="oyun.html">Masa</a>
+        <a href="harita.html">Harita</a>
+      </nav>
+      <button class="menu-btn" id="menuBtn"><span></span><span></span></button>
+    </div>
+  </header>
+
+  <main class="world-page">
+    <div class="wrap full">
+      <div class="page-hero" style="margin-bottom:1rem">
+        <span class="tag">Harita · 1330</span>
+        <h1>Avrupa · 1330</h1>
+        <p>Oyun bu gerçek tarih haritasının alternatifinde geçer. Harita sabit; üzerine çiz / sil.</p>
+      </div>
+
+      <div class="world-toolbar">
+        <button type="button" class="btn btn-ghost btn-sm active" data-wtool="draw">Çiz</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-wtool="erase">Silgi</button>
+        <label style="font-size:0.72rem;color:var(--text-2);display:flex;align-items:center;gap:0.35rem">
+          Renk <input type="color" id="worldColor" value="#d4af37" />
+        </label>
+        <label style="font-size:0.72rem;color:var(--text-2);display:flex;align-items:center;gap:0.35rem">
+          Kalınlık <input type="range" id="worldSize" min="1" max="16" value="3" />
+        </label>
+        <button type="button" id="worldClear" class="btn btn-ghost btn-sm">Çizimi temizle</button>
+      </div>
+
+      <div class="world-frame" id="worldFrame" style="aspect-ratio:16/9;max-height:75vh">
+        <img class="map-base" src="assets/europe-1330.webp" alt="Europe 1330" style="object-fit:contain;background:#c5d5e0" />
+        <canvas id="worldDraw"></canvas>
+      </div>
+
+      <div class="note" style="max-width:900px;margin:1.25rem auto 0">
+        <strong>1330 Avrupa.</strong> Nüfus listesi ve siyasi sınırlar haritada. Çizim katmanı ayrıdır.
+      </div>
+    </div>
+  </main>
+  <footer class="footer"><div class="wrap"><p class="footer-logo">ORIGINS · 1330</p><p class="footer-sub">Alternatif Orta Çağ · masa RPG</p></div></footer>
+  <script src="js/core.js"></script>
+  <script src="js/world.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", initWorldMap);</script>
+</body>
+</html>
