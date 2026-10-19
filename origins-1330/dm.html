@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Origins — DM Kanalı</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .gate {
+      min-height: calc(100vh - 58px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 2rem;
+    }
+    .gate-box {
+      width: min(380px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2rem 1.5rem;
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+    .gate-box h1 {
+      font-family: var(--font-d);
+      font-size: 1.5rem;
+      color: var(--gold);
+      letter-spacing: 0.12em;
+      margin-bottom: 0.4rem;
+    }
+    .gate-box p { color: var(--text-2); font-size: 0.95rem; margin-bottom: 1.25rem; line-height: 1.55; }
+    .gate-box input {
+      width: 100%; background: var(--bg-elev); border: 1px solid var(--border);
+      color: var(--text); padding: 0.75rem 0.9rem; border-radius: var(--radius);
+      margin-bottom: 0.75rem; font-size: 1rem; outline: none;
+    }
+    .gate-box input:focus { border-color: var(--gold-dim); }
+    .dm-channel { display: none; padding: 5.5rem 0 3rem; }
+    .dm-channel.open { display: block; }
+    .role-btns { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
+    .role-btns button {
+      flex: 1; padding: 0.5rem; border-radius: var(--radius);
+      border: 1px solid var(--border); background: var(--bg-elev);
+      color: var(--text-2); cursor: pointer; font-size: 0.75rem;
+    }
+    .role-btns button.on-dost { border-color: #5b8def; color: #5b8def; background: rgba(91,141,239,0.14); }
+    .role-btns button.on-notr { border-color: #e8e8e8; color: #e8e8e8; background: rgba(255,255,255,0.08); }
+    .role-btns button.on-dusman { border-color: #e05a5a; color: #e05a5a; background: rgba(224,90,90,0.12); }
+    .dm-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 1rem; position: relative;
+    }
+    .dm-card.dost { border-color: rgba(91,141,239,0.55); }
+    .dm-card.notr { border-color: rgba(230,230,230,0.5); }
+    .dm-card.dusman { border-color: rgba(224,90,90,0.45); }
+    .dm-card img {
+      width: 56px; height: 56px; border-radius: 8px; object-fit: cover;
+      border: 1px solid var(--border); float: right;
+    }
+    .dm-card .tag {
+      font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase;
+      margin-bottom: 0.2rem;
+    }
+    .dm-card .tag.dost { color: #5b8def; }
+    .dm-card .tag.notr { color: #e0e0e0; }
+    .dm-card .tag.dusman { color: #e05a5a; }
+    .dm-card h3 { font-family: var(--font-d); font-size: 1.05rem; margin-bottom: 0.25rem; }
+    .dm-card .meta { font-size: 0.78rem; color: var(--text-3); margin-bottom: 0.5rem; }
+    .portrait-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; }
+    .portrait-row img {
+      width: 72px; height: 72px; border-radius: 8px; object-fit: cover;
+      border: 1px solid var(--border); display: none; background: var(--bg-elev);
+    }
+    .portrait-row img.show { display: block; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo"><span>◆</span> ORIGINS</a>
+      <nav class="nav" id="nav">
+        <a href="dm.html" class="active">DM</a>
+        <a href="evren.html">Evren</a>
+        <a href="hikaye.html">Hikâye</a>
+        <a href="karakter.html">Karakter</a>
+        <a href="oyun.html">Masa</a>
+        <a href="harita.html">Harita</a>
+      </nav>
+      <button class="menu-btn" id="menuBtn" type="button"><span></span><span></span></button>
+    </div>
+  </header>
+
+  <!-- Password gate -->
+  <div class="gate" id="gate">
+    <div class="gate-box">
+      <h1>DM KANALI</h1>
+      <p>Sadece DM girişi. Şifre gerekli.</p>
+      <input type="password" id="gatePass" placeholder="Şifre" autocomplete="off" />
+      <button type="button" class="btn btn-gold" id="gateBtn" style="width:100%">Giriş</button>
+      <p id="gateErr" style="color:var(--danger);font-size:0.8rem;margin-top:0.75rem;display:none">Yanlış şifre</p>
+    </div>
+  </div>
+
+  <!-- DM channel content -->
+  <main class="dm-channel" id="dmChannel">
+    <div class="wrap wide">
+      <div class="page-hero">
+        <span class="tag">DM · Gizli</span>
+        <h1>DM Kanalı</h1>
+        <p>Dost veya düşman token’ları burada hazırla. Masada oyuncuların karşısına koyarsın.</p>
+      </div>
+
+      <section class="char-section" style="margin-bottom:1.5rem">
+        <h2 style="font-family:var(--font-d);color:var(--gold);font-size:1rem;margin-bottom:1rem;letter-spacing:0.05em">Yeni token / karakter</h2>
+        <form id="dmForm">
+          <div class="role-btns">
+            <button type="button" class="on-dost" data-role="dost" id="roleDost">Dost</button>
+            <button type="button" data-role="notr" id="roleNotr">Nötr</button>
+            <button type="button" data-role="dusman" id="roleDusman">Düşman</button>
+          </div>
+          <div class="portrait-row">
+            <img id="dmPic" alt="" />
+            <div>
+              <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+                Resim
+                <input type="file" id="dmPicFile" accept="image/*" hidden />
+              </label>
+              <button type="button" class="btn btn-ghost btn-sm" id="dmPicClear">Sil</button>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>İsim</span><input id="dmName" required maxlength="32" /></label>
+            <label class="field"><span>Tür / not</span><input id="dmNote" maxlength="60" placeholder="Asker, canavar, müttefik…" /></label>
+            <label class="field"><span>Can</span><input type="number" id="dmHp" min="1" value="15" /></label>
+            <label class="field"><span>Max can</span><input type="number" id="dmHpMax" min="1" value="15" /></label>
+            <label class="field full"><span>Açıklama</span><textarea id="dmDesc" rows="2"></textarea></label>
+            <label class="field"><span>AC</span><input type="number" id="dmAc" min="0" value="12" /></label>
+            <label class="field"><span>Hasar</span><input type="text" id="dmDmg" value="1d6" /></label>
+          </div>
+          <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-bottom:0.75rem">
+              <input type="checkbox" id="dmHasCreature" />
+              <span style="font-size:0.85rem;color:var(--text-2)">Yaratık / yoldaş formu ekle (opsiyonel)</span>
+            </label>
+            <div id="dmCreatureFields" style="display:none">
+              <div class="form-grid">
+                <label class="field"><span>Yaratık adı</span><input id="dmCrName" maxlength="32" placeholder="Boşsa: isim + Yoldaş" /></label>
+                <label class="field"><span>Boyut</span>
+                  <select id="dmCrSize"><option>Küçük</option><option selected>Orta</option><option>Büyük</option><option>Devasa</option></select>
+                </label>
+                <label class="field"><span>Can</span><input type="number" id="dmCrHp" min="1" value="20" /></label>
+                <label class="field"><span>Max can</span><input type="number" id="dmCrHpMax" min="1" value="20" /></label>
+                <label class="field"><span>AC</span><input type="number" id="dmCrAc" min="0" value="13" /></label>
+                <label class="field"><span>Hasar</span><input type="text" id="dmCrDmg" value="1d8" /></label>
+                <label class="field full"><span>Yaratık notu</span><textarea id="dmCrNote" rows="2"></textarea></label>
+              </div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-gold">Kütüphaneye kaydet</button>
+            <button type="button" class="btn btn-ghost" id="dmReset">Sıfırla</button>
+          </div>
+        </form>
+      </section>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+        <h3 style="font-family:var(--font-d);color:var(--gold);letter-spacing:0.06em">Kütüphane</h3>
+        <button type="button" class="btn btn-ghost btn-sm" id="dmLogout">Çıkış</button>
+      </div>
+      <div style="display:flex;gap:0.4rem;margin-bottom:0.75rem">
+        <button type="button" class="btn btn-gold btn-sm" id="libTabAll">Tümü</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="libTabNpc">NPC / Dost</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="libTabEnemy">Düşman</button>
+      </div>
+      <h4 style="font-family:var(--font-d);color:#3d9e6f;font-size:0.85rem;margin:0.5rem 0">NPC / Dost kütüphanesi</h4>
+      <div class="roster" id="dmListNpc"></div>
+      <p id="dmEmptyNpc" style="text-align:center;color:var(--text-3);padding:0.75rem;display:none">NPC yok.</p>
+      <h4 style="font-family:var(--font-d);color:#e05a5a;font-size:0.85rem;margin:1rem 0 0.5rem">Düşman kütüphanesi</h4>
+      <div class="roster" id="dmListEnemy"></div>
+      <p id="dmEmptyEnemy" style="text-align:center;color:var(--text-3);padding:0.75rem;display:none">Düşman yok.</p>
+      <div class="roster" id="dmList" style="display:none"></div>
+      <p id="dmEmpty" style="display:none"></p>
+
+      
+      <section class="char-section" style="margin-bottom:1.5rem">
+        <h2 style="font-family:var(--font-d);color:var(--gold);font-size:1rem;margin-bottom:0.75rem;letter-spacing:0.05em">Kampanya defteri</h2>
+        <p style="font-size:0.8rem;color:var(--text-3);margin-bottom:0.75rem">Bölgeler, NPC’ler, oturum özeti — DM notları (tarayıcıda saklanır).</p>
+        <label class="field" style="display:block;margin-bottom:0.6rem"><span style="font-size:0.75rem;color:var(--text-3)">Bölgeler</span>
+          <textarea id="loreRegions" rows="3" style="width:100%;margin-top:0.25rem;background:var(--bg-elev);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:0.5rem;font-family:inherit"></textarea>
+        </label>
+        <label class="field" style="display:block;margin-bottom:0.6rem"><span style="font-size:0.75rem;color:var(--text-3)">NPC listesi</span>
+          <textarea id="loreNpcs" rows="3" style="width:100%;margin-top:0.25rem;background:var(--bg-elev);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:0.5rem;font-family:inherit"></textarea>
+        </label>
+        <label class="field" style="display:block;margin-bottom:0.6rem"><span style="font-size:0.75rem;color:var(--text-3)">Oturum özeti</span>
+          <textarea id="loreSummary" rows="3" style="width:100%;margin-top:0.25rem;background:var(--bg-elev);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:0.5rem;font-family:inherit"></textarea>
+        </label>
+        <button type="button" class="btn btn-gold btn-sm" id="loreSave">Defteri kaydet</button>
+      </section>
+
+      <div class="actions center" style="margin-top:1.5rem">
+        <a href="oyun.html" class="btn btn-gold">Masaya git</a>
+        <a href="evren.html" class="btn btn-ghost">Evren</a>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/core.js">
+    (function loreBook() {
+      const lore = (typeof load === "function" ? load("origins_lore_v1", {}) : {}) || {};
+      const r = document.getElementById("loreRegions");
+      const n = document.getElementById("loreNpcs");
+      const s = document.getElementById("loreSummary");
+      if (r) r.value = lore.regions || "";
+      if (n) n.value = lore.npcs || "";
+      if (s) s.value = lore.summary || "";
+      document.getElementById("loreSave")?.addEventListener("click", () => {
+        const data = {
+          regions: r?.value || "",
+          npcs: n?.value || "",
+          summary: s?.value || "",
+        };
+        if (typeof save === "function") save("origins_lore_v1", data);
+        else localStorage.setItem("origins_lore_v1", JSON.stringify(data));
+        alert("Defter kaydedildi.");
+      });
+    })();
+
+  </script>
+  <script>
+    const DM_PAGE_PASS = "1";
+    const DM_CHARS_KEY = "origins_dm_chars_v1";
+    const DM_PAGE_AUTH = "origins_dm_page_auth";
+
+    let dmRole = "dost";
+    let dmPortrait = "";
+    let editId = null;
+
+    function loadDmChars() {
+      try { return JSON.parse(localStorage.getItem(DM_CHARS_KEY) || "[]"); }
+      catch { return []; }
+    }
+    function saveDmChars(list) {
+      localStorage.setItem(DM_CHARS_KEY, JSON.stringify(list));
+    }
+
+    function openChannel() {
+      document.getElementById("gate").style.display = "none";
+      document.getElementById("dmChannel").classList.add("open");
+      renderDmList();
+    }
+
+    function tryAuth(pass) {
+      if (pass === DM_PAGE_PASS) {
+        sessionStorage.setItem(DM_PAGE_AUTH, "1");
+        openChannel();
+        return true;
+      }
+      document.getElementById("gateErr").style.display = "block";
+      return false;
+    }
+
+    if (sessionStorage.getItem(DM_PAGE_AUTH) === "1") openChannel();
+
+    document.getElementById("gateBtn")?.addEventListener("click", () => {
+      tryAuth(document.getElementById("gatePass").value);
+    });
+    document.getElementById("gatePass")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") tryAuth(e.target.value);
+    });
+    document.getElementById("dmLogout")?.addEventListener("click", () => {
+      sessionStorage.removeItem(DM_PAGE_AUTH);
+      location.reload();
+    });
+
+    function setRoleUi(role) {
+      dmRole = role;
+      const d = document.getElementById("roleDost");
+      const n = document.getElementById("roleNotr");
+      const e = document.getElementById("roleDusman");
+      if (d) d.className = role === "dost" ? "on-dost" : "";
+      if (n) n.className = role === "notr" ? "on-notr" : "";
+      if (e) e.className = role === "dusman" ? "on-dusman" : "";
+    }
+    document.getElementById("roleDost")?.addEventListener("click", () => setRoleUi("dost"));
+    document.getElementById("roleNotr")?.addEventListener("click", () => setRoleUi("notr"));
+    document.getElementById("roleDusman")?.addEventListener("click", () => setRoleUi("dusman"));
+
+    document.getElementById("dmHasCreature")?.addEventListener("change", (e) => {
+      const box = document.getElementById("dmCreatureFields");
+      if (box) box.style.display = e.target.checked ? "block" : "none";
+    });
+
+    document.getElementById("dmPicFile")?.addEventListener("change", (e) => {
+      const f = e.target.files?.[0];
+      if (!f || !f.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          const max = 256;
+          if (w > max || h > max) {
+            const r = Math.min(max / w, max / h);
+            w = Math.round(w * r); h = Math.round(h * r);
+          }
+          const cv = document.createElement("canvas");
+          cv.width = w; cv.height = h;
+          cv.getContext("2d").drawImage(img, 0, 0, w, h);
+          dmPortrait = cv.toDataURL("image/jpeg", 0.82);
+          const pic = document.getElementById("dmPic");
+          pic.src = dmPortrait;
+          pic.classList.add("show");
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(f);
+      e.target.value = "";
+    });
+    document.getElementById("dmPicClear")?.addEventListener("click", () => {
+      dmPortrait = "";
+      const pic = document.getElementById("dmPic");
+      pic.removeAttribute("src");
+      pic.classList.remove("show");
+    });
+
+    document.getElementById("dmForm")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = document.getElementById("dmName").value.trim();
+      if (!name) return;
+      const hpMax = parseInt(document.getElementById("dmHpMax").value, 10) || 15;
+      const hp = parseInt(document.getElementById("dmHp").value, 10) || hpMax;
+      const hasCr = document.getElementById("dmHasCreature")?.checked;
+      const entry = {
+        id: editId || uid(),
+        name,
+        role: dmRole,
+        faction: dmRole === "dusman" ? "enemy" : (dmRole === "notr" ? "neutral" : "ally"),
+        note: document.getElementById("dmNote").value.trim(),
+        desc: document.getElementById("dmDesc").value.trim(),
+        hp, hpMax,
+        ac: parseInt(document.getElementById("dmAc")?.value, 10) || 12,
+        damage: (document.getElementById("dmDmg")?.value || "1d6").trim(),
+        portrait: dmPortrait || "",
+        enemy: dmRole === "dusman",
+        creature: hasCr ? {
+          name: (document.getElementById("dmCrName")?.value || "").trim(),
+          size: document.getElementById("dmCrSize")?.value || "Orta",
+          hp: parseInt(document.getElementById("dmCrHp")?.value, 10) || 20,
+          hpMax: parseInt(document.getElementById("dmCrHpMax")?.value, 10) || 20,
+          ac: parseInt(document.getElementById("dmCrAc")?.value, 10) || 13,
+          damage: (document.getElementById("dmCrDmg")?.value || "1d8").trim(),
+          note: (document.getElementById("dmCrNote")?.value || "").trim(),
+        } : null,
+      };
+      const list = loadDmChars();
+      if (editId) {
+        const i = list.findIndex((x) => x.id === editId);
+        if (i >= 0) list[i] = entry; else list.push(entry);
+      } else list.push(entry);
+      saveDmChars(list);
+      // also push into enemies store if dusman, for masa compatibility
+      syncToMasa(entry);
+      editId = null;
+      document.getElementById("dmForm").reset();
+      document.getElementById("dmHp").value = 15;
+      document.getElementById("dmHpMax").value = 15;
+      dmPortrait = "";
+      const pic = document.getElementById("dmPic");
+      pic.removeAttribute("src");
+      pic.classList.remove("show");
+      renderDmList();
+    });
+
+    function syncToMasa(entry) {
+      // Keep enemies list in sync for dusman; dost go to a soft list via dm chars only
+      if (entry.role === "dusman") {
+        const enemies = loadEnemies();
+        const i = enemies.findIndex((x) => x.dmId === entry.id);
+        const row = {
+          id: i >= 0 ? enemies[i].id : uid(),
+          dmId: entry.id,
+          name: entry.name,
+          hp: entry.hp,
+          hpMax: entry.hpMax,
+          note: entry.note || entry.desc,
+          portrait: entry.portrait,
+        };
+        if (i >= 0) enemies[i] = row; else enemies.push(row);
+        saveEnemies(enemies);
+      }
+    }
+
+    document.getElementById("dmReset")?.addEventListener("click", () => {
+      editId = null;
+      document.getElementById("dmForm").reset();
+      document.getElementById("dmHp").value = 15;
+      document.getElementById("dmHpMax").value = 15;
+      dmPortrait = "";
+      const pic = document.getElementById("dmPic");
+      pic.removeAttribute("src");
+      pic.classList.remove("show");
+    });
+
+    let libFilter = "all";
+    function renderDmList() {
+      const list = loadDmChars();
+      const npcs = list.filter((c) => c.role !== "dusman");
+      const enemies = list.filter((c) => c.role === "dusman");
+      const showNpc = libFilter === "all" || libFilter === "npc";
+      const showEnemy = libFilter === "all" || libFilter === "enemy";
+
+      function fill(elId, emptyId, arr, visible) {
+        const el = document.getElementById(elId);
+        const empty = document.getElementById(emptyId);
+        if (!el) return;
+        el.innerHTML = "";
+        el.style.display = visible ? "" : "none";
+        if (empty) {
+          empty.style.display = visible && !arr.length ? "" : "none";
+        }
+        if (!visible) return;
+        arr.forEach((c) => {
+          const card = document.createElement("div");
+          const role = c.role === "dusman" ? "dusman" : (c.role === "notr" ? "notr" : "dost");
+          const roleLabel = role === "dusman" ? "Düşman" : (role === "notr" ? "Nötr" : "Dost");
+          card.className = "dm-card " + role;
+          card.innerHTML = `
+            ${c.portrait ? `<img src="${c.portrait}" alt="" />` : ""}
+            <div class="tag ${role}">${roleLabel}</div>
+            <h3>${esc(c.name)}</h3>
+            <div class="meta">${esc(c.note || "—")} · Can ${c.hp}/${c.hpMax}${c.creature ? " · 🐉 Yaratık" : ""}</div>
+            <p style="font-size:0.8rem;color:var(--text-2);margin-bottom:0.5rem">${esc(c.desc || "")}</p>
+            <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
+              <button type="button" class="btn btn-ghost btn-sm" data-edit="${c.id}">Düzenle</button>
+              <button type="button" class="btn btn-danger btn-sm" data-del="${c.id}">Sil</button>
+            </div>`;
+          el.appendChild(card);
+        });
+      }
+      fill("dmListNpc", "dmEmptyNpc", npcs, showNpc);
+      fill("dmListEnemy", "dmEmptyEnemy", enemies, showEnemy);
+
+      // hide section titles based on filter
+      document.querySelectorAll("h4").forEach((h) => {
+        if (h.textContent.includes("NPC")) h.style.display = showNpc ? "" : "none";
+        if (h.textContent.includes("Düşman kütüphanesi")) h.style.display = showEnemy ? "" : "none";
+      });
+
+      document.querySelectorAll("[data-edit]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const c = loadDmChars().find((x) => x.id === btn.dataset.edit);
+          if (!c) return;
+          editId = c.id;
+          dmRole = c.role || "dost";
+          setRoleUi(dmRole);
+          document.getElementById("dmName").value = c.name;
+          document.getElementById("dmNote").value = c.note || "";
+          document.getElementById("dmDesc").value = c.desc || "";
+          document.getElementById("dmHp").value = c.hp ?? 15;
+          document.getElementById("dmHpMax").value = c.hpMax ?? 15;
+          if (document.getElementById("dmAc")) document.getElementById("dmAc").value = c.ac ?? 12;
+          if (document.getElementById("dmDmg")) document.getElementById("dmDmg").value = c.damage || "1d6";
+          const hasCr = !!(c.creature);
+          const cb = document.getElementById("dmHasCreature");
+          if (cb) cb.checked = hasCr;
+          const box = document.getElementById("dmCreatureFields");
+          if (box) box.style.display = hasCr ? "block" : "none";
+          if (hasCr && c.creature) {
+            document.getElementById("dmCrName").value = c.creature.name || "";
+            document.getElementById("dmCrSize").value = c.creature.size || "Orta";
+            document.getElementById("dmCrHp").value = c.creature.hp ?? 20;
+            document.getElementById("dmCrHpMax").value = c.creature.hpMax ?? 20;
+            document.getElementById("dmCrAc").value = c.creature.ac ?? 13;
+            document.getElementById("dmCrDmg").value = c.creature.damage || "1d8";
+            document.getElementById("dmCrNote").value = c.creature.note || "";
+          }
+          dmPortrait = c.portrait || "";
+          const pic = document.getElementById("dmPic");
+          if (dmPortrait) { pic.src = dmPortrait; pic.classList.add("show"); }
+          else { pic.removeAttribute("src"); pic.classList.remove("show"); }
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      });
+      document.querySelectorAll("[data-del]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (!confirm("Kütüphaneden sil?")) return;
+          const id = btn.dataset.del;
+          saveDmChars(loadDmChars().filter((x) => x.id !== id));
+          saveEnemies(loadEnemies().filter((x) => x.dmId !== id));
+          renderDmList();
+        });
+      });
+    }
+    document.getElementById("libTabAll")?.addEventListener("click", () => {
+      libFilter = "all";
+      document.getElementById("libTabAll").className = "btn btn-gold btn-sm";
+      document.getElementById("libTabNpc").className = "btn btn-ghost btn-sm";
+      document.getElementById("libTabEnemy").className = "btn btn-ghost btn-sm";
+      renderDmList();
+    });
+    document.getElementById("libTabNpc")?.addEventListener("click", () => {
+      libFilter = "npc";
+      document.getElementById("libTabAll").className = "btn btn-ghost btn-sm";
+      document.getElementById("libTabNpc").className = "btn btn-gold btn-sm";
+      document.getElementById("libTabEnemy").className = "btn btn-ghost btn-sm";
+      renderDmList();
+    });
+    document.getElementById("libTabEnemy")?.addEventListener("click", () => {
+      libFilter = "enemy";
+      document.getElementById("libTabAll").className = "btn btn-ghost btn-sm";
+      document.getElementById("libTabNpc").className = "btn btn-ghost btn-sm";
+      document.getElementById("libTabEnemy").className = "btn btn-gold btn-sm";
+      renderDmList();
+    });
+  </script>
+</body>
+</html>
