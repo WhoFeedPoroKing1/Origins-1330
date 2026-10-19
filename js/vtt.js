@@ -4258,16 +4258,18 @@ function initVTT() {
       ac: tk.ac,
       damage: tk.damage,
       statuses: tk.statuses,
-      portrait: tk.portrait || "",
+      portrait: "", // online: büyük dataURL gitmesin (lokal kalır)
       hasCreature: tk.hasCreature,
-      creatureData: tk.creatureData || null,
+      creatureData: null,
       hidden: !!tk.hidden,
       visionFt: tk.visionFt != null ? tk.visionFt : 10,
       lightOn: !!tk.lightOn,
       lightFt: tk.lightFt != null ? tk.lightFt : 30,
       deathSaves: tk.deathSaves || { success: 0, fail: 0, stable: false, dead: false },
-      atkSfx: tk.atkSfx || "",
+      atkSfx: "",
       atkSfxName: tk.atkSfxName || "",
+      faction: tk.faction || "",
+      enemy: !!tk.enemy,
     }));
     let mapBg = null;
     try {
