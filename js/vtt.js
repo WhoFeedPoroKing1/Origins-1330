@@ -2874,6 +2874,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   });
   document.getElementById("sfxVolume")?.addEventListener("input", (e) => {
     try { localStorage.setItem("origins_sfx_vol", e.target.value); } catch (_) {}
+    // canlı: açık sfx yoksa bile master güncel
   });
   (function initVol() {
     const el = document.getElementById("sfxVolume");
@@ -2900,11 +2901,23 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
 
   function getMusicVol() {
     const el = document.getElementById("musicVolume");
-    if (el) return Math.min(1, Math.max(0, (+el.value || 0) / 100));
-    return 0.4;
+    let v = 40;
+    if (el) v = +el.value;
+    else {
+      try { const s = localStorage.getItem("origins_music_vol"); if (s != null) v = +s; } catch (_) {}
+    }
+    if (!isFinite(v)) v = 40;
+    return Math.min(1, Math.max(0, v / 100));
   }
   function applyMusicVol() {
-    if (musicAudio) musicAudio.volume = getMusicVol();
+    const vol = getMusicVol();
+    if (musicAudio) {
+      try { musicAudio.volume = vol; } catch (_) {}
+    }
+    // tüm müzik audio etiketleri
+    document.querySelectorAll("audio[data-origins-music]").forEach((a) => {
+      try { a.volume = vol; } catch (_) {}
+    });
   }
   function stopMusicLocal() {
     if (musicAudio) {
@@ -2918,8 +2931,12 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     try {
       musicAudio = new Audio(src);
       musicAudio.loop = true;
+      musicAudio.setAttribute("data-origins-music", "1");
+      musicAudio.volume = getMusicVol();
       applyMusicVol();
       await musicAudio.play();
+      // play sonrası tekrar uygula (bazı tarayıcılar sıfırlar)
+      musicAudio.volume = getMusicVol();
       const nameEl = document.getElementById("musicName");
       if (nameEl) nameEl.textContent = (name || "Müzik") + (fromRemote ? " · odadan" : "");
     } catch (err) {
@@ -2950,17 +2967,19 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           id: id,
           name: musicFileName || "Müzik",
           total: total,
+          len: musicDataUrl.length,
         });
         for (let i = 0; i < total; i++) {
           OriginsSync.pushMusic({
             action: "play_chunk",
             id: id,
             i: i,
+            total: total,
             data: musicDataUrl.slice(i * CHUNK, (i + 1) * CHUNK),
           });
         }
-        OriginsSync.pushMusic({ action: "play_end", id: id });
-        chatAdd("♫ Müzik odaya gönderildi (" + total + " parça)", "sys");
+        OriginsSync.pushMusic({ action: "play_end", id: id, total: total, len: musicDataUrl.length });
+        chatAdd("♫ Müzik odaya gönderiliyor (" + total + " parça, ~" + Math.round(musicDataUrl.length / 1000) + "KB)…", "sys");
       } else {
         OriginsSync.pushMusic({ action: "stop" });
       }
@@ -2991,7 +3010,21 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     musicAudio.loop = true;
     applyMusicVol();
   });
-  document.getElementById("musicVolume")?.addEventListener("input", applyMusicVol);
+  document.getElementById("musicVolume")?.addEventListener("input", (e) => {
+    try { localStorage.setItem("origins_music_vol", e.target.value); } catch (_) {}
+    applyMusicVol();
+  });
+  (function initMusicVol() {
+    const el = document.getElementById("musicVolume");
+    if (!el) return;
+    try {
+      const v = localStorage.getItem("origins_music_vol");
+      if (v != null) el.value = v;
+    } catch (_) {}
+    applyMusicVol();
+  })();
+  // periyodik: kayan ses seviyesi kaçmasın
+  setInterval(() => { try { applyMusicVol(); } catch (_) {} }, 800);
   document.getElementById("musicPlay")?.addEventListener("click", async () => {
     if (!isDm()) { alert("Oda müziğini sadece DM başlatır."); return; }
     if (!musicDataUrl && !musicAudio) {
@@ -3062,7 +3095,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     try {
       getAudio();
       const a = new Audio(s.dataUrl);
-      a.volume = 0.85;
+      a.volume = Math.min(1, 0.9 * getMasterVol());
       a.play().catch(() => alert("Ses çalınamadı — tarayıcı engellemiş olabilir"));
     } catch (e) {
       console.warn(e);
@@ -3151,11 +3184,14 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     const dm = typeof isDm === "function" ? isDm() : false;
     // Ambiyans: sadece DM
     const ambRoot = document.getElementById("ambPanel") || document.getElementById("ambientPanel");
-    document.querySelectorAll(".amb-btn, #ambStop, #ambVolume, #ambIntensity, #ambShareRoom, #ambClearCustom").forEach((el) => {
+    document.querySelectorAll(".amb-btn, #ambStop, #ambIntensity, #ambShareRoom, #ambClearCustom").forEach((el) => {
       if (!el) return;
       el.disabled = !dm;
-      if (!dm) el.title = "Sadece DM ambiyans kontrol eder";
+      if (!dm) el.title = "Sadece DM ambiyans başlatır/durdurur";
     });
+    // Ses seviyesi herkese açık
+    const ambVolEl = document.getElementById("ambVolume");
+    if (ambVolEl) { ambVolEl.disabled = false; ambVolEl.title = "Kendi duyduğun ambiyans sesi"; }
     document.querySelectorAll("[data-amb-file]").forEach((el) => {
       el.disabled = !dm;
     });
@@ -3174,39 +3210,71 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     });
     // Ses seviyesi herkes ayarlayabilir
     const mv = document.getElementById("musicVolume");
-    if (mv) mv.disabled = false;
+    if (mv) { mv.disabled = false; mv.title = "Kendi duyduğun müzik sesi"; }
+    const sv = document.getElementById("sfxVolume");
+    if (sv) { sv.disabled = false; sv.title = "Efekt / zar / kişisel ses seviyesi"; }
   }
   try { applyAudioPermissions(); } catch (_) {}
   // DM giriş/çıkış sonrası
   document.getElementById("dmLockBtn")?.addEventListener("click", () => setTimeout(() => { try { applyAudioPermissions(); } catch (_) {} }, 100));
   document.getElementById("dmUnlockBtn")?.addEventListener("click", () => setTimeout(() => { try { applyAudioPermissions(); } catch (_) {} }, 100));
 
-function handleRemoteMusic(msg) {
+  function handleRemoteMusic(msg) {
     if (!msg) return;
     try {
       if (window.OriginsSync && OriginsSync.clientId && msg.from === OriginsSync.clientId()) return;
     } catch (_) {}
 
-    // Chunked music assemble
+    // Chunked music assemble (begin / chunk / end)
     if (msg.action === "play_begin") {
-      _musicChunks[msg.id] = { parts: [], total: msg.total || 1, name: msg.name || "Müzik" };
+      _musicChunks[msg.id] = { parts: [], total: msg.total || 1, name: msg.name || "Müzik", got: 0 };
+      try { chatAdd("♫ Müzik alınıyor… 0/" + (msg.total || "?"), "sys"); } catch (_) {}
       return;
     }
     if (msg.action === "play_chunk") {
-      const b = _musicChunks[msg.id];
-      if (!b) return;
-      b.parts[msg.i] = msg.data || "";
+      let b = _musicChunks[msg.id];
+      if (!b) {
+        b = _musicChunks[msg.id] = { parts: [], total: msg.total || 1, name: msg.name || "Müzik", got: 0 };
+      }
+      if (typeof msg.i === "number" && typeof b.parts[msg.i] !== "string") {
+        b.parts[msg.i] = msg.data || "";
+        b.got = (b.got || 0) + 1;
+      } else if (typeof msg.i === "number") {
+        b.parts[msg.i] = msg.data || "";
+      }
       return;
     }
     if (msg.action === "play_end") {
       const b = _musicChunks[msg.id];
       if (!b) return;
+      const total = b.total || 0;
+      let missing = 0;
+      for (let i = 0; i < total; i++) {
+        if (typeof b.parts[i] !== "string") missing++;
+      }
+      if (missing > 0) {
+        try { chatAdd("♫ Müzik eksik parça (" + missing + ") — DM tekrar çalsın", "sys"); } catch (_) {}
+        delete _musicChunks[msg.id];
+        return;
+      }
       const dataUrl = b.parts.join("");
+      const name = b.name || "Müzik";
       delete _musicChunks[msg.id];
-      if (!dataUrl) return;
+      if (!dataUrl || dataUrl.length < 100) return;
+      window.__pendingRoomMusic = { dataUrl: dataUrl, name: name };
       getAudio();
-      playMusicFromSrc(dataUrl, b.name, true).catch(() => {});
-      chatAdd("♫ Odadan müzik: " + esc(b.name), "sys");
+      playMusicFromSrc(dataUrl, name, true).then(() => {
+        applyMusicVol();
+        chatAdd("♫ Odadan müzik: " + esc(name) + " — ses: Müzik kaydırıcısı", "sys");
+      }).catch(() => {
+        chatAdd("♫ Müzik geldi — seste tıkla / Müzik panelinden ses aç", "sys");
+        // tek tıkla başlat
+        const once = () => {
+          playMusicFromSrc(dataUrl, name, true).then(() => applyMusicVol()).catch(() => {});
+          document.removeEventListener("click", once);
+        };
+        document.addEventListener("click", once);
+      });
       return;
     }
 
@@ -5512,6 +5580,7 @@ function handleRemoteMusic(msg) {
     chatAdd("♫ Ambiyans durdu", "sys");
   });
   document.getElementById("ambVolume")?.addEventListener("input", (e) => {
+    /* local volume — herkes */
     try { localStorage.setItem("origins_amb_vol", e.target.value); } catch (_) {}
     applyAmbVol();
   });
@@ -5540,6 +5609,11 @@ function handleRemoteMusic(msg) {
     saveAmbCustom({});
     document.querySelectorAll("[data-amb-file]").forEach((inp) => { inp.value = ""; });
     chatAdd("♫ Özel ambıyanslar silindi", "sys");
+  });
+  // amb volume: herkes yerel kısabilir
+  document.getElementById("ambVolume")?.addEventListener("change", (e) => {
+    try { localStorage.setItem("origins_amb_vol", e.target.value); } catch (_) {}
+    applyAmbVol();
   });
   // restore volume slider
   try {

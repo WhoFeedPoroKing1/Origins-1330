@@ -2388,7 +2388,7 @@ body {
 }
 
 
-/* Non-DM: ambiyans kontrolleri soluk */
+/* Non-DM: sadece çalma/yönetme kilitli — SES SEVİYESİ herkese açık */
 body:not(.is-dm) .amb-btn,
 body:not(.is-dm) #ambStop,
 body:not(.is-dm) [data-amb-file],
@@ -2402,4 +2402,11 @@ body:not(.is-dm) #musicPlay,
 body:not(.is-dm) #musicStop {
   opacity: 0.45;
   pointer-events: none;
+}
+body:not(.is-dm) #musicVolume,
+body:not(.is-dm) #ambVolume,
+body:not(.is-dm) #sfxVolume {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  filter: none !important;
 }
