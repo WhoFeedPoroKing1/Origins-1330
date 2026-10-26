@@ -1223,8 +1223,9 @@ function initVTT() {
       creatureData: data.creature || null,
       owner: ownerName,
       portrait,
-      atkSfx: data.atkSfx || (data.human && data.human.atkSfx) || "",
+      atkSfx: "",
       atkSfxName: data.atkSfxName || "",
+      atkYt: data.atkYt || "",
     });
     selectedId = newId;
     saveTokens();
@@ -1577,12 +1578,9 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       </div>
       <label style="font-size:0.65rem;color:#6b665c">Hasar</label>
       <input type="text" id="tokDmg" value="${esc(t.damage || "1d6")}" style="width:100%;margin-bottom:0.4rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem" />
-      <div style="font-size:0.65rem;color:#6b665c;margin:0 0 0.2rem">Saldırı sesi (bu karaktere özel)</div>
-      <label class="tbtn" style="display:block;width:100%;text-align:center;margin-bottom:0.35rem;cursor:pointer;font-size:0.72rem">
-        ${t.atkSfxName ? "🔊 " + esc(t.atkSfxName) : "Ses yükle (mp3)"}
-        <input type="file" id="tokAtkSfx" accept="audio/*" hidden />
-      </label>
-      ${t.atkSfx ? '<button type="button" class="tbtn" id="tokAtkSfxClear" style="width:100%;margin-bottom:0.4rem;font-size:0.68rem">Saldırı sesini sil</button>' : ""}
+      <div style="font-size:0.65rem;color:#6b665c;margin:0 0 0.2rem">Saldırı sesi (YouTube — herkes duyar)</div>
+      <input type="text" id="tokAtkYt" class="yt-sfx-input" placeholder="YouTube linki yapıştır" value="${esc(t.atkYt || "")}" style="width:100%;margin-bottom:0.35rem;font-size:0.72rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px" />
+      ${t.atkYt ? '<button type="button" class="tbtn" id="tokAtkSfxClear" style="width:100%;margin-bottom:0.4rem;font-size:0.68rem">Saldırı sesini sil</button>' : ""}
       ${isDm() ? `<label class="chk" style="display:flex;align-items:center;gap:0.35rem;font-size:0.68rem;color:#a8a396;margin-bottom:0.4rem"><input type="checkbox" id="tokHidden" ${t.hidden ? "checked" : ""}/> Gizli (sadece DM)</label>` : ""}
       <div style="font-size:0.65rem;color:#d4af37;margin:0.45rem 0 0.25rem">Görüş / ışık</div>
       <label style="font-size:0.62rem;color:#6b665c">Karanlıkta görüş (ft)</label>
@@ -1647,28 +1645,32 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       t.damage = e.target.value || "1d6";
       saveTokens();
     });
-    document.getElementById("tokAtkSfx")?.addEventListener("change", (e) => {
+    document.getElementById("tokAtkYt")?.addEventListener("change", (e) => {
       if (!allowEdit) return;
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      if (file.size > 1.5e6) {
-        alert("Ses dosyası ~1.5MB altı olsun (oda senkronu için)");
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        t.atkSfx = reader.result;
-        t.atkSfxName = file.name || "saldırı.mp3";
+      const raw = (e.target.value || "").trim();
+      if (!raw) {
+        t.atkYt = "";
+        t.atkSfxName = "";
+        t.atkSfx = "";
         saveTokens();
-        renderInspector();
         scheduleSync();
-        chatAdd("🔊 " + esc(t.name) + " saldırı sesi: " + esc(t.atkSfxName), "sys");
-      };
-      reader.readAsDataURL(file);
+        return;
+      }
+      const id = extractYtIdLocal(raw);
+      if (!id) { alert("Geçerli YouTube linki değil"); return; }
+      t.atkYt = raw.indexOf("http") === 0 ? raw : ("https://www.youtube.com/watch?v=" + id);
+      t.atkSfxName = t.atkYt;
+      t.atkSfx = ""; // mp3 yok
+      saveTokens();
+      renderInspector();
+      scheduleSync();
+      chatAdd("🔊 " + esc(t.name) + " saldırı sesi (YT) kaydedildi", "sys");
     });
     document.getElementById("tokAtkSfxClear")?.addEventListener("click", () => {
       if (!allowEdit) return;
       t.atkSfx = "";
       t.atkSfxName = "";
+      t.atkYt = "";
       saveTokens();
       renderInspector();
       scheduleSync();
@@ -2658,10 +2660,10 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   });
   document.getElementById("clearAtk")?.addEventListener("click", () => setAttackPair(null, null));
 
-  // ── SFX: mp3/ogg from assets/sounds or user uploads; synth fallback ──
+  // ── SFX: YouTube linkleri (kalıcı) + sentez yedek; odaya yayın ──
   let _audioCtx = null;
   const SFX_KEYS = ["hit", "crit", "miss", "heal", "dice", "critmiss", "downed"];
-  const SFX_STORE = "origins_sfx_v1";
+  const SFX_STORE = "origins_sfx_yt_v1";
   const sfxCache = Object.create(null); // kind -> HTMLAudioElement or null
   const sfxObjectUrl = Object.create(null);
 
@@ -2836,45 +2838,187 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     }
   }
 
-  function playSound(kind) {
+  function extractYtIdLocal(input) {
+    if (!input) return null;
+    const s = String(input).trim();
+    if (/^[\w-]{11}$/.test(s)) return s;
+    try {
+      const u = new URL(s);
+      if (u.hostname.indexOf("youtu.be") >= 0) {
+        const id = u.pathname.replace(/^\//, "").slice(0, 11);
+        return /^[\w-]{11}$/.test(id) ? id : null;
+      }
+      if (u.hostname.indexOf("youtube") >= 0) {
+        const v = u.searchParams.get("v");
+        if (v && /^[\w-]{11}$/.test(v)) return v;
+        const parts = u.pathname.split("/").filter(Boolean);
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (["embed", "shorts", "live", "v"].indexOf(parts[i]) >= 0 && /^[\w-]{11}$/.test(parts[i + 1]))
+            return parts[i + 1];
+        }
+      }
+    } catch (_) {
+      const m = s.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  // Gizli YouTube SFX oynatıcı havuzu
+  const _ytSfxPlayers = [];
+  function ensureYtApiSfx(cb) {
+    if (window.YT && window.YT.Player) { cb(); return; }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = function () {
+      if (typeof prev === "function") try { prev(); } catch (_) {}
+      cb();
+    };
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    }
+    // API geç gelirse tekrar dene
+    let n = 0;
+    const t = setInterval(() => {
+      n++;
+      if (window.YT && window.YT.Player) { clearInterval(t); cb(); }
+      else if (n > 40) clearInterval(t);
+    }, 250);
+  }
+
+  function playYoutubeSfx(videoId, opts) {
+    opts = opts || {};
+    if (!videoId) return;
+    const vol = Math.round(getMasterVol() * 100);
+    ensureYtApiSfx(() => {
+      const pool = document.getElementById("ytSfxPool") || document.body;
+      const div = document.createElement("div");
+      div.id = "ytSfx_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      pool.appendChild(div);
+      let player = null;
+      const kill = () => {
+        try { if (player && player.destroy) player.destroy(); } catch (_) {}
+        try { div.remove(); } catch (_) {}
+      };
+      try {
+        player = new YT.Player(div.id, {
+          height: "1",
+          width: "1",
+          videoId: videoId,
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            rel: 0,
+            modestbranding: 1,
+            playsinline: 1,
+            start: opts.start || 0,
+          },
+          events: {
+            onReady: (e) => {
+              try {
+                e.target.setVolume(vol);
+                e.target.playVideo();
+              } catch (_) {}
+              // max 12 sn SFX
+              setTimeout(kill, opts.maxMs || 12000);
+            },
+            onStateChange: (e) => {
+              if (e.data === 0) kill(); // ended
+            },
+            onError: () => kill(),
+          },
+        });
+      } catch (err) {
+        console.warn("yt sfx", err);
+        kill();
+      }
+    });
+  }
+
+  function getSfxVideoId(kind) {
+    const map = loadSfxMap();
+    const raw = map[kind];
+    if (!raw) return null;
+    // eski dataURL kayıtlarını yok say
+    if (typeof raw === "string" && raw.indexOf("data:") === 0) return null;
+    return extractYtIdLocal(raw) || (typeof raw === "string" && /^[\w-]{11}$/.test(raw) ? raw : null);
+  }
+
+  function playSound(kind, opts) {
+    opts = opts || {};
     const k = kind || "hit";
-    playFileSfx(k).then((ok) => {
-      if (!ok) playSynthSfx(k);
-    }).catch(() => playSynthSfx(k));
+    const vid = opts.videoId || getSfxVideoId(k);
+    if (vid) {
+      playYoutubeSfx(vid, opts);
+    } else {
+      playSynthSfx(k);
+    }
+    // odaya yayın (kendi echo'su handleRemote'da kesilir)
+    if (!opts.remote && !opts.silent) {
+      try {
+        if (window.OriginsSync && OriginsSync.pushMusic && OriginsSync.isConnected && OriginsSync.isConnected()) {
+          OriginsSync.pushMusic({
+            action: "sfx_yt",
+            kind: k,
+            videoId: vid || "",
+            name: opts.name || k,
+          });
+        }
+      } catch (_) {}
+    }
   }
 
   function refreshSfxPanel() {
     const map = loadSfxMap();
-    document.querySelectorAll("#sfxPanel [data-sfx]").forEach((inp) => {
-      const kind = inp.getAttribute("data-sfx");
+    document.querySelectorAll("#sfxPanel [data-sfx-yt]").forEach((inp) => {
+      const kind = inp.getAttribute("data-sfx-yt");
+      const val = map[kind] || "";
+      // dataURL eski kayıt gösterme
+      if (val && String(val).indexOf("data:") === 0) {
+        inp.value = "";
+      } else if (!inp.value || inp.dataset.loaded !== "1") {
+        inp.value = val && String(val).indexOf("http") === 0 ? val : (val || "");
+        inp.dataset.loaded = "1";
+      }
       const row = inp.closest(".sfx-row");
-      if (row) row.classList.toggle("has-file", !!map[kind]);
+      if (row) row.classList.toggle("has-file", !!(val && String(val).indexOf("data:") !== 0));
     });
   }
 
-  document.querySelectorAll("#sfxPanel [data-sfx]").forEach((inp) => {
-    inp.addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0];
-      const kind = inp.getAttribute("data-sfx");
-      if (!file || !kind) return;
-      if (file.size > 2.5 * 1024 * 1024) {
-        alert("Ses dosyası 2.5 MB altında olsun.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
+  function bindSfxYtInputs() {
+    document.querySelectorAll("#sfxPanel [data-sfx-yt]").forEach((inp) => {
+      const saveOne = () => {
+        const kind = inp.getAttribute("data-sfx-yt");
+        if (!kind) return;
+        const raw = (inp.value || "").trim();
         const map = loadSfxMap();
-        map[kind] = reader.result;
+        if (!raw) {
+          delete map[kind];
+          saveSfxMap(map);
+          refreshSfxPanel();
+          return;
+        }
+        const id = extractYtIdLocal(raw);
+        if (!id) {
+          alert("Geçerli YouTube linki değil");
+          return;
+        }
+        // tam link sakla (kalıcı)
+        map[kind] = raw.indexOf("http") === 0 ? raw : ("https://www.youtube.com/watch?v=" + id);
         saveSfxMap(map);
         refreshSfxPanel();
-        playSound(kind);
+        setMusicLabel && null;
+        try { chatAdd("🔊 " + kind + " sesi kaydedildi", "sys"); } catch (_) {}
       };
-      reader.readAsDataURL(file);
+      inp.addEventListener("change", saveOne);
+      inp.addEventListener("blur", saveOne);
     });
-  });
+  }
+  bindSfxYtInputs();
+
   document.getElementById("sfxVolume")?.addEventListener("input", (e) => {
     try { localStorage.setItem("origins_sfx_vol", e.target.value); } catch (_) {}
-    // canlı: açık sfx yoksa bile master güncel
   });
   (function initVol() {
     const el = document.getElementById("sfxVolume");
@@ -2888,7 +3032,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   document.querySelectorAll("[data-sfx-test]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const k = btn.getAttribute("data-sfx-test");
-      if (k) playSound(k);
+      if (k) playSound(k); // yayınlı test
     });
   });
 
@@ -3148,7 +3292,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     }
   }
 
-  document.getElementById("musicFile")?.addEventListener("change", (e) => {
+  document.getElementById("musicFile")?.addEventListener("change_disabled", (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     if (file.size > MUSIC_MAX_FILE) {
@@ -3249,25 +3393,24 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     chatAdd("♫ Müzik durdu (oda)", "sys");
   });
 
-  // ── Kişisel 2 ses paneli (her oyuncuya özel, localStorage) ──
-  const PLAYER_SFX_KEY = "origins_player_sfx_v1";
+  // ── Kişisel 2 ses paneli (YouTube, kalıcı, odaya yayın) ──
+  const PLAYER_SFX_KEY = "origins_player_sfx_yt_v1";
   let _sfxEditSlot = 1;
-  let _sfxPendingData = null;
 
   function loadPlayerSfx() {
     try {
       const d = JSON.parse(localStorage.getItem(PLAYER_SFX_KEY) || "{}");
       return {
-        1: d[1] || d.s1 || { name: "Ses 1", dataUrl: "" },
-        2: d[2] || d.s2 || { name: "Ses 2", dataUrl: "" },
+        1: d[1] || d.s1 || { name: "Ses 1", yt: "" },
+        2: d[2] || d.s2 || { name: "Ses 2", yt: "" },
       };
     } catch (_) {
-      return { 1: { name: "Ses 1", dataUrl: "" }, 2: { name: "Ses 2", dataUrl: "" } };
+      return { 1: { name: "Ses 1", yt: "" }, 2: { name: "Ses 2", yt: "" } };
     }
   }
   function savePlayerSfx(data) {
     try { localStorage.setItem(PLAYER_SFX_KEY, JSON.stringify(data)); } catch (e) {
-      alert("Ses kaydedilemedi (dosya çok büyük olabilir, daha kısa ses dene).");
+      alert("Kayıt başarısız");
     }
   }
   function refreshSfxButtons() {
@@ -3278,38 +3421,36 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       const slot = data[n] || {};
       const label = (slot.name || ("Ses " + n)).slice(0, 18);
       btn.textContent = "🔊 " + label;
-      btn.classList.toggle("has-sound", !!(slot.dataUrl && slot.dataUrl.length > 20));
-      btn.title = "Sol tık: çal · sağ tık: isim/ses ayarla";
+      const has = !!(slot.yt && extractYtIdLocal(slot.yt));
+      btn.classList.toggle("has-sound", has);
+      btn.title = "Sol tık: çal (oda) · sağ tık: YouTube linki ayarla";
     });
   }
   function playPlayerSfx(slot) {
     const data = loadPlayerSfx();
     const s = data[slot];
-    if (!s || !s.dataUrl) {
+    if (!s || !s.yt) {
       openSfxEditor(slot);
       return;
     }
-    try {
-      getAudio();
-      const a = new Audio(s.dataUrl);
-      a.volume = Math.min(1, 0.9 * getMasterVol());
-      a.play().catch(() => alert("Ses çalınamadı — tarayıcı engellemiş olabilir"));
-    } catch (e) {
-      console.warn(e);
+    const vid = extractYtIdLocal(s.yt);
+    if (!vid) {
+      openSfxEditor(slot);
+      return;
     }
+    playSound("player" + slot, { videoId: vid, name: s.name || ("Ses " + slot) });
   }
   function openSfxEditor(slot) {
     _sfxEditSlot = slot;
-    _sfxPendingData = null;
     const data = loadPlayerSfx();
     const s = data[slot] || {};
     const modal = document.getElementById("sfxEditModal");
     const title = document.getElementById("sfxEditTitle");
     const nameIn = document.getElementById("sfxEditName");
-    const fileIn = document.getElementById("sfxEditFile");
+    const ytIn = document.getElementById("sfxEditYt");
     if (title) title.textContent = "Ses paneli " + slot;
     if (nameIn) nameIn.value = s.name || ("Ses " + slot);
-    if (fileIn) fileIn.value = "";
+    if (ytIn) ytIn.value = s.yt || "";
     if (modal) {
       modal.style.display = "flex";
       modal.setAttribute("aria-hidden", "false");
@@ -3321,27 +3462,20 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       modal.style.display = "none";
       modal.setAttribute("aria-hidden", "true");
     }
-    _sfxPendingData = null;
   }
-  document.getElementById("sfxEditFile")?.addEventListener("change", (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    if (f.size > 1.5e6) {
-      alert("Ses ~1.5MB altı olsun.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => { _sfxPendingData = reader.result; };
-    reader.readAsDataURL(f);
-  });
   document.getElementById("sfxEditSave")?.addEventListener("click", () => {
     const data = loadPlayerSfx();
     const nameIn = document.getElementById("sfxEditName");
+    const ytIn = document.getElementById("sfxEditYt");
     const name = (nameIn && nameIn.value.trim()) || ("Ses " + _sfxEditSlot);
-    const prev = data[_sfxEditSlot] || {};
+    const raw = (ytIn && ytIn.value.trim()) || "";
+    if (raw && !extractYtIdLocal(raw)) {
+      alert("Geçerli YouTube linki gir");
+      return;
+    }
     data[_sfxEditSlot] = {
       name: name.slice(0, 24),
-      dataUrl: _sfxPendingData || prev.dataUrl || "",
+      yt: raw,
     };
     savePlayerSfx(data);
     refreshSfxButtons();
@@ -3349,7 +3483,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   });
   document.getElementById("sfxEditClear")?.addEventListener("click", () => {
     const data = loadPlayerSfx();
-    data[_sfxEditSlot] = { name: "Ses " + _sfxEditSlot, dataUrl: "" };
+    data[_sfxEditSlot] = { name: "Ses " + _sfxEditSlot, yt: "" };
     savePlayerSfx(data);
     refreshSfxButtons();
     closeSfxEditor();
@@ -3374,9 +3508,6 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   });
   try { refreshSfxButtons(); } catch (_) {}
 
-
-
-  
   function applyAudioPermissions() {
     const dm = typeof isDm === "function" ? isDm() : false;
     // Ambiyans: sadece DM
@@ -3398,7 +3529,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       ambBtn.title = "Ambiyans sadece DM";
     }
     // Müzik çal/durdur/dosya — DM (oda müziği)
-    ["musicFile", "musicPlay", "musicStop", "musicYoutubeUrl"].forEach((id) => {
+    ["musicPlay", "musicStop", "musicYoutubeUrl"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) {
         el.disabled = !dm;
@@ -3546,10 +3677,36 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
 
 
   document.getElementById("sfxClear")?.addEventListener("click", () => {
+    if (!confirm("Tüm ses linkleri silinsin mi?")) return;
     saveSfxMap({});
+    document.querySelectorAll("#sfxPanel [data-sfx-yt]").forEach((inp) => {
+      inp.value = "";
+      inp.dataset.loaded = "0";
+    });
     refreshSfxPanel();
-    document.querySelectorAll("#sfxPanel [data-sfx]").forEach((inp) => { inp.value = ""; });
   });
+
+  // Ambiyans YouTube linkleri (kalıcı)
+  (function bindAmbYt() {
+    const KEY = "origins_amb_yt_v1";
+    function loadA() { try { return JSON.parse(localStorage.getItem(KEY)||"{}"); } catch(_){ return {}; } }
+    function saveA(m) { try { localStorage.setItem(KEY, JSON.stringify(m)); } catch(_){} }
+    const map = loadA();
+    document.querySelectorAll("[data-amb-yt]").forEach((inp) => {
+      const k = inp.getAttribute("data-amb-yt");
+      if (map[k]) inp.value = map[k];
+      const save = () => {
+        const m = loadA();
+        const v = (inp.value||"").trim();
+        if (!v) { delete m[k]; saveA(m); return; }
+        if (!extractYtIdLocal(v)) { alert("Geçerli YouTube linki değil"); return; }
+        m[k] = v; saveA(m);
+      };
+      inp.addEventListener("change", save);
+      inp.addEventListener("blur", save);
+    });
+    // startAmbient: if custom yt for kind, play yt as ambient loop via music player? skip for now - use synth
+  })();
   refreshSfxPanel();
 
   function floatText(tok, text, cls) {
@@ -3564,21 +3721,24 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     setTimeout(() => el.remove(), 1100);
   }
 
-  /** Saldırı sesi: karakterin özel atkSfx varsa o, yoksa global hit/crit/miss */
+  /** Saldırı sesi: token YouTube / global YT / sentez — herkese yayın */
   function playCombatSound(type, attacker, opts) {
     opts = opts || {};
     const kind = type === "critmiss" ? "miss" : type;
-    // Uzaktan gelen özel url (nadir)
-    if (opts.sfxUrl) {
-      playHtmlAudio(opts.sfxUrl, kind === "crit" ? 1 : 0.9);
+    // Token özel YouTube saldırı sesi
+    if (attacker && (attacker.atkYt || attacker.atkSfxName) && (kind === "hit" || kind === "crit")) {
+      const vid = extractYtIdLocal(attacker.atkYt || attacker.atkSfxName);
+      if (vid) {
+        playSound(kind, { videoId: vid, name: attacker.name + " saldırı", remote: !!opts.remote });
+        return;
+      }
+    }
+    // Uzaktan videoId
+    if (opts.videoId) {
+      playSound(kind, { videoId: opts.videoId, remote: true });
       return;
     }
-    // Karakter / token özel saldırı sesi (hit & crit)
-    if (attacker && attacker.atkSfx && (kind === "hit" || kind === "crit")) {
-      playHtmlAudio(attacker.atkSfx, kind === "crit" ? 1 : 0.9);
-      return;
-    }
-    playSound(kind);
+    playSound(kind, { remote: !!opts.remote });
   }
 
   /** Play combat FX on specific tokens (not global atk pair only) */
@@ -3596,7 +3756,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           fxType: type,
           targetId: tid,
           attackerId: aid,
-          // sfxUrl not needed if token.atkSfx is in state; send kind for fallback
+          videoId: (attacker && extractYtIdLocal(attacker.atkYt || attacker.atkSfxName || "")) || "",
         });
       } catch (_) {}
     }
@@ -4870,6 +5030,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       deathSaves: tk.deathSaves || { success: 0, fail: 0, stable: false, dead: false },
       atkSfx: "",
       atkSfxName: tk.atkSfxName || "",
+      atkYt: tk.atkYt || "",
       faction: tk.faction || "",
       enemy: !!tk.enemy,
     }));

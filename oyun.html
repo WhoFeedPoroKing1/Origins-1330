@@ -73,18 +73,18 @@
 
     <div class="vtt-main">
       <aside class="vtt-side" id="sideLeft"><div class="side-resizer" id="resizeLeft" title="Sürükle"></div>
-        <h3>Sesler (mp3)</h3>
+        <h3>Sesler (YouTube)</h3>
         <div class="sfx-panel" id="sfxPanel">
           <p style="font-size:0.62rem;color:#6b665c;line-height:1.35;margin:0 0 0.4rem">
-            Dosya yoksa geliştirilmiş sentez ses çalar. İstersen mp3 yükle veya <code>assets/sounds/</code> kullan.
+            Her satıra YouTube linki yapıştır. Kayıt bu tarayıcıda kalır; çalınca <strong>odadaki herkes</strong> duyar.
           </p>
-          <label class="sfx-row">Kılıç / vuruş <input type="file" data-sfx="hit" accept="audio/*" /></label>
-          <label class="sfx-row">Kritik <input type="file" data-sfx="crit" accept="audio/*" /></label>
-          <label class="sfx-row">Iska <input type="file" data-sfx="miss" accept="audio/*" /></label>
-          <label class="sfx-row">Kritik ıska <input type="file" data-sfx="critmiss" accept="audio/*" /></label>
-          <label class="sfx-row">Şifa <input type="file" data-sfx="heal" accept="audio/*" /></label>
-          <label class="sfx-row">Zar <input type="file" data-sfx="dice" accept="audio/*" /></label>
-          <label class="sfx-row">Yere düşüş <input type="file" data-sfx="downed" accept="audio/*" /></label>
+          <label class="sfx-row">Kılıç / vuruş <input type="text" data-sfx-yt="hit" class="yt-sfx-input" placeholder="youtube.com/watch?v=…" /></label>
+          <label class="sfx-row">Kritik <input type="text" data-sfx-yt="crit" class="yt-sfx-input" placeholder="YouTube linki" /></label>
+          <label class="sfx-row">Iska <input type="text" data-sfx-yt="miss" class="yt-sfx-input" placeholder="YouTube linki" /></label>
+          <label class="sfx-row">Kritik ıska <input type="text" data-sfx-yt="critmiss" class="yt-sfx-input" placeholder="YouTube linki" /></label>
+          <label class="sfx-row">Şifa <input type="text" data-sfx-yt="heal" class="yt-sfx-input" placeholder="YouTube linki" /></label>
+          <label class="sfx-row">Zar (senin zarın) <input type="text" data-sfx-yt="dice" class="yt-sfx-input" placeholder="Kendi zar sesin" /></label>
+          <label class="sfx-row">Yere düşüş <input type="text" data-sfx-yt="downed" class="yt-sfx-input" placeholder="YouTube linki" /></label>
           <label class="sfx-row">Ses seviyesi
             <input type="range" id="sfxVolume" min="0" max="100" value="55" />
           </label>
@@ -96,15 +96,12 @@
             <button type="button" class="tbtn" data-sfx-test="dice">Zar</button>
             <button type="button" class="tbtn" data-sfx-test="downed">Düşüş</button>
           </div>
-          <button type="button" class="tbtn" id="sfxClear" style="width:100%;margin-top:0.3rem">Yüklenenleri sil</button>
+          <button type="button" class="tbtn" id="sfxClear" style="width:100%;margin-top:0.3rem">Linkleri temizle</button>
         </div>
         <h3>Müzik</h3>
         <div class="sfx-panel" id="musicPanel">
           <label class="sfx-row">YouTube linki
             <input type="text" id="musicYoutubeUrl" placeholder="https://youtube.com/watch?v=..." style="width:100%;background:#0c0c12;border:1px solid rgba(255,255,255,0.12);color:#eee;border-radius:6px;padding:0.35rem 0.45rem;font-size:0.72rem" />
-          </label>
-          <label class="sfx-row">veya MP3 / ses (yedek)
-            <input type="file" id="musicFile" accept="audio/*" />
           </label>
           <label class="sfx-row">Müzik sesi
             <input type="range" id="musicVolume" min="0" max="100" value="40" />
@@ -113,7 +110,8 @@
             <button type="button" class="tbtn" id="musicPlay" style="flex:1">▶ Çal</button>
             <button type="button" class="tbtn" id="musicStop" style="flex:1">⏹ Dur</button>
           </div>
-          <p id="musicName" style="font-size:0.6rem;color:#6b665c;margin:0.35rem 0 0;word-break:break-all">YouTube linki yapıştır veya dosya seç</p>
+          <p id="musicName" style="font-size:0.6rem;color:#6b665c;margin:0.35rem 0 0;word-break:break-all">YouTube linki yapıştır — kalıcı, odaya yayınlanır</p>
+          <div id="ytSfxPool" style="position:absolute;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none" aria-hidden="true"></div>
           <div id="ytPlayerWrap" style="position:relative;width:100%;max-height:120px;margin-top:0.4rem;overflow:hidden;border-radius:8px;background:#000;display:none">
             <div id="ytPlayer"></div>
           </div>
@@ -204,8 +202,8 @@
           <div class="sfx-modal-box">
             <h4 id="sfxEditTitle">Ses paneli</h4>
             <label>İsim <input type="text" id="sfxEditName" maxlength="24" placeholder="Örn. Kılıç, Büyü" /></label>
-            <label>Ses dosyası <input type="file" id="sfxEditFile" accept="audio/*,.mp3,.ogg,.wav" /></label>
-            <p id="sfxEditHint" class="sfx-hint">Bu ses sadece sende; token çubuğundan çalarsın.</p>
+            <label>YouTube linki <input type="text" id="sfxEditYt" placeholder="https://youtube.com/watch?v=…" style="width:100%" /></label>
+            <p id="sfxEditHint" class="sfx-hint">Link kaydedilir; çalınca odadaki herkes duyar.</p>
             <div class="sfx-modal-actions">
               <button type="button" class="btn btn-ghost btn-sm" id="sfxEditCancel">İptal</button>
               <button type="button" class="btn btn-ghost btn-sm" id="sfxEditClear">Sesi sil</button>
@@ -297,10 +295,10 @@
           <input type="range" id="ambIntensity" min="10" max="100" value="50" />
         </label>
         <p style="font-size:0.6rem;color:#6b665c;margin:0.25rem 0 0.35rem">Özel loop (mp3) — boşsa geliştirilmiş sentez çalar</p>
-        <label class="sfx-row">Liman <input type="file" data-amb-file="liman" accept="audio/*" /></label>
-        <label class="sfx-row">Savaş <input type="file" data-amb-file="savas" accept="audio/*" /></label>
-        <label class="sfx-row">Fısıltı <input type="file" data-amb-file="fisilti" accept="audio/*" /></label>
-        <label class="sfx-row">Yağmur <input type="file" data-amb-file="yagmur" accept="audio/*" /></label>
+        <label class="sfx-row">Liman YT <input type="text" data-amb-yt="liman" class="yt-sfx-input" placeholder="YouTube linki" /></label>
+        <label class="sfx-row">Savaş YT <input type="text" data-amb-yt="savas" class="yt-sfx-input" placeholder="YouTube linki" /></label>
+        <label class="sfx-row">Fısıltı YT <input type="text" data-amb-yt="fisilti" class="yt-sfx-input" placeholder="YouTube linki" /></label>
+        <label class="sfx-row">Yağmur YT <input type="text" data-amb-yt="yagmur" class="yt-sfx-input" placeholder="YouTube linki" /></label>
         <button type="button" class="tbtn" id="ambClearCustom" style="width:100%;margin:0.3rem 0 0.5rem;font-size:0.68rem">Özel ambıyansları sil</button>
         <label class="chk" style="display:flex;align-items:center;gap:0.35rem;font-size:0.68rem;color:#a8a396;margin-bottom:0.5rem">
           <input type="checkbox" id="ambShareRoom" checked /> Odadaki herkese çal

@@ -2415,3 +2415,17 @@ body:not(.is-dm) #musicYoutubeUrl {
   opacity: 0.45;
   pointer-events: none;
 }
+
+.yt-sfx-input {
+  width: 100%;
+  background: #0c0c12;
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #eee;
+  border-radius: 6px;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.7rem;
+  margin-top: 0.15rem;
+}
+.sfx-row.has-file .yt-sfx-input {
+  border-color: rgba(90, 200, 140, 0.45);
+}
