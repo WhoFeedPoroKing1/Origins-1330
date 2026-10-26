@@ -1233,7 +1233,13 @@ function initVTT() {
   function broadcastTokenPortrait(tokenId, dataUrl) {
     if (!tokenId || !dataUrl) return;
     if (String(dataUrl).indexOf("blob:") === 0) return;
-    compressPortrait(dataUrl, 160, 0.62).then((small) => {
+    if (String(dataUrl).indexOf("data:") !== 0) return;
+    const tk0 = tokens.find((x) => x.id === tokenId);
+    const meta = {
+      refId: tk0 ? (tk0.refId || "") : "",
+      name: tk0 ? (tk0.name || "") : "",
+    };
+    const send = (small) => {
       if (!small || String(small).indexOf("data:") !== 0) return;
       const tk = tokens.find((x) => x.id === tokenId);
       if (tk) {
@@ -1241,23 +1247,41 @@ function initVTT() {
         try { saveTokens(); } catch (_) {}
         try { renderTokens(); } catch (_) {}
       }
-      try { scheduleSync(); } catch (_) {}
+      // refId ile de cache (aynı karakter tekrar)
       try {
-        if (window.OriginsSync && OriginsSync.pushTokenPortrait &&
-            OriginsSync.isConnected && OriginsSync.isConnected()) {
-          OriginsSync.pushTokenPortrait(tokenId, small);
+        if (meta.refId) {
+          const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
+          cache[String(meta.refId)] = small;
+          localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
         }
       } catch (_) {}
-    });
+      const trySend = (attempt) => {
+        try {
+          if (!window.OriginsSync || !OriginsSync.pushTokenPortrait) return;
+          if (!OriginsSync.isConnected || !OriginsSync.isConnected()) {
+            if (attempt < 8) setTimeout(() => trySend(attempt + 1), 1000 * (attempt + 1));
+            return;
+          }
+          OriginsSync.pushTokenPortrait(tokenId, small, meta);
+        } catch (_) {}
+      };
+      trySend(0);
+    };
+    // Zaten küçükse direkt
+    if (String(dataUrl).length < 35000) {
+      send(dataUrl);
+      return;
+    }
+    compressPortrait(dataUrl, 128, 0.55).then(send);
   }
 
   function pushAllTokenPortraits() {
-    if (!window.OriginsSync || !OriginsSync.isConnected || !OriginsSync.isConnected()) return;
+    if (!window.OriginsSync) return;
     let delay = 0;
     tokens.forEach((tk) => {
       if (!tk || !tk.portrait || String(tk.portrait).length < 40) return;
       if (String(tk.portrait).indexOf("data:") !== 0) return;
-      delay += 400;
+      delay += 500;
       setTimeout(() => {
         try { broadcastTokenPortrait(tk.id, tk.portrait); } catch (_) {}
       }, delay);
@@ -5154,7 +5178,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       ac: tk.ac,
       damage: tk.damage,
       statuses: tk.statuses,
-      portrait: (tk.portrait && String(tk.portrait).length <= 50000 && String(tk.portrait).indexOf("data:") === 0) ? tk.portrait : "",
+      portrait: "",
       hasCreature: tk.hasCreature,
       creatureData: null,
       hidden: !!tk.hidden,
@@ -5220,17 +5244,16 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           merged.portrait = old.portrait;
         }
         try {
-          const pend = window.__pendingPortraits && window.__pendingPortraits[merged.id];
-          if (pend && (!merged.portrait || String(merged.portrait).length < 40)) {
-            merged.portrait = pend;
-            delete window.__pendingPortraits[merged.id];
+          const pend = window.__pendingPortraits || Object.create(null);
+          if ((!merged.portrait || String(merged.portrait).length < 40) && pend[merged.id]) {
+            merged.portrait = pend[merged.id];
           }
-        } catch (_) {}
-        try {
-          const pend = window.__pendingPortraits && window.__pendingPortraits[merged.id];
-          if (pend && !merged.portrait) {
-            merged.portrait = pend;
-            delete window.__pendingPortraits[merged.id];
+          if ((!merged.portrait || String(merged.portrait).length < 40) && merged.refId && pend["ref:" + merged.refId]) {
+            merged.portrait = pend["ref:" + merged.refId];
+          }
+          if ((!merged.portrait || String(merged.portrait).length < 40) && merged.refId) {
+            const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
+            if (cache[String(merged.refId)]) merged.portrait = cache[String(merged.refId)];
           }
         } catch (_) {}
         if (old && !merged.atkSfx && old.atkSfx) {
@@ -5355,20 +5378,32 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       onMusic: (msg) => {
         try { handleRemoteMusic(msg); } catch (_) {}
       },
-      onPortrait: (tokenId, dataUrl) => {
-        if (!tokenId || !dataUrl) return;
-        const tk = tokens.find((x) => x.id === tokenId);
-        if (!tk) {
-          // henüz token gelmemiş olabilir — kısa süre sakla
-          window.__pendingPortraits = window.__pendingPortraits || Object.create(null);
-          window.__pendingPortraits[tokenId] = dataUrl;
-          return;
+      onPortrait: (tokenId, dataUrl, meta) => {
+        if (!dataUrl || String(dataUrl).indexOf("data:") !== 0) return;
+        meta = meta || {};
+        window.__pendingPortraits = window.__pendingPortraits || Object.create(null);
+        if (tokenId) window.__pendingPortraits[tokenId] = dataUrl;
+        if (meta.refId) {
+          window.__pendingPortraits["ref:" + meta.refId] = dataUrl;
+          try {
+            const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
+            cache[String(meta.refId)] = dataUrl;
+            localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
+          } catch (_) {}
         }
-        if (tk.portrait === dataUrl) return;
+        let tk = tokenId ? tokens.find((x) => x.id === tokenId) : null;
+        if (!tk && meta.refId) {
+          tk = tokens.find((x) => String(x.refId) === String(meta.refId) && !x.portrait);
+        }
+        if (!tk && meta.name) {
+          tk = tokens.find((x) => x.name === meta.name && !x.portrait);
+        }
+        if (!tk) return;
         tk.portrait = dataUrl;
         try { saveTokens(); } catch (_) {}
         try { renderTokens(); } catch (_) {}
         try { renderHP(); } catch (_) {}
+        try { renderInspector(); } catch (_) {}
       },
       onDice: (msg) => {
         if (!msg) return;
