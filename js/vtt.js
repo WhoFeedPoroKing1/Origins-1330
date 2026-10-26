@@ -1232,6 +1232,12 @@ function initVTT() {
     renderTokens();
     renderInspector();
     renderHP();
+    try { scheduleSync(); } catch (_) {}
+    // Portreyi odaya gönder
+    try {
+      const tk = tokens.find((x) => x.id === newId);
+      if (tk && tk.portrait) broadcastTokenPortrait(tk.id, tk.portrait);
+    } catch (_) {}
     setTimeout(() => {
       const tk = tokens.find((x) => x.id === newId);
       if (tk) delete tk._spawn;
@@ -4704,6 +4710,10 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     renderTokens();
     renderInspector();
     renderHP();
+    try { scheduleSync(); } catch (_) {}
+    try {
+      if (ally.portrait) broadcastTokenPortrait(ally.id, ally.portrait);
+    } catch (_) {}
     setTimeout(() => {
       const tk = tokens.find((x) => x.id === ally.id);
       if (tk) delete tk._spawn;
@@ -5081,6 +5091,13 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
         const old = oldById[tk.id];
         let merged = { ...tk };
         if (old && !merged.portrait && old.portrait) merged.portrait = old.portrait;
+        try {
+          const pend = window.__pendingPortraits && window.__pendingPortraits[merged.id];
+          if (pend && !merged.portrait) {
+            merged.portrait = pend;
+            delete window.__pendingPortraits[merged.id];
+          }
+        } catch (_) {}
         if (old && !merged.atkSfx && old.atkSfx) {
           merged.atkSfx = old.atkSfx;
           merged.atkSfxName = old.atkSfxName || merged.atkSfxName;
@@ -5198,6 +5215,21 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       },
       onMusic: (msg) => {
         try { handleRemoteMusic(msg); } catch (_) {}
+      },
+      onPortrait: (tokenId, dataUrl) => {
+        if (!tokenId || !dataUrl) return;
+        const tk = tokens.find((x) => x.id === tokenId);
+        if (!tk) {
+          // henüz token gelmemiş olabilir — kısa süre sakla
+          window.__pendingPortraits = window.__pendingPortraits || Object.create(null);
+          window.__pendingPortraits[tokenId] = dataUrl;
+          return;
+        }
+        if (tk.portrait === dataUrl) return;
+        tk.portrait = dataUrl;
+        try { saveTokens(); } catch (_) {}
+        try { renderTokens(); } catch (_) {}
+        try { renderHP(); } catch (_) {}
       },
       onDice: (msg) => {
         if (!msg) return;

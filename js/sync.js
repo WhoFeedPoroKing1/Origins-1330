@@ -243,6 +243,82 @@
 
 
 
+
+  // ── Token portrait chunk transfer ──
+  const _portParts = Object.create(null);
+  let onPortrait = null;
+
+  function pushTokenPortrait(tokenId, dataUrl) {
+    if (!tokenId || !dataUrl || !connected) return false;
+    const str = String(dataUrl);
+    if (str.length < 30) return false;
+    const id = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const CHUNK = 12000;
+    const total = Math.max(1, Math.ceil(str.length / CHUNK));
+    enqueuePublish(TOPIC, {
+      type: "portrait_chunk",
+      phase: "begin",
+      id: id,
+      tokenId: tokenId,
+      total: total,
+      len: str.length,
+      from: ensureClientId(),
+      t: Date.now(),
+    }, 25);
+    for (let i = 0; i < total; i++) {
+      enqueuePublish(TOPIC, {
+        type: "portrait_chunk",
+        phase: "data",
+        id: id,
+        tokenId: tokenId,
+        i: i,
+        total: total,
+        data: str.slice(i * CHUNK, (i + 1) * CHUNK),
+        from: ensureClientId(),
+        t: Date.now(),
+      }, 45);
+    }
+    enqueuePublish(TOPIC, {
+      type: "portrait_chunk",
+      phase: "end",
+      id: id,
+      tokenId: tokenId,
+      total: total,
+      len: str.length,
+      from: ensureClientId(),
+      t: Date.now(),
+    }, 45);
+    return true;
+  }
+
+  function handlePortraitChunk(msg) {
+    if (!msg || !msg.id) return;
+    if (msg.phase === "begin") {
+      _portParts[msg.id] = { total: msg.total || 1, parts: [], tokenId: msg.tokenId };
+      return;
+    }
+    if (!_portParts[msg.id]) {
+      _portParts[msg.id] = { total: msg.total || 1, parts: [], tokenId: msg.tokenId };
+    }
+    const b = _portParts[msg.id];
+    if (msg.tokenId) b.tokenId = msg.tokenId;
+    if (msg.phase === "data" || typeof msg.i === "number") {
+      b.parts[msg.i] = msg.data || "";
+    }
+    let full = true;
+    for (let i = 0; i < b.total; i++) {
+      if (typeof b.parts[i] !== "string") { full = false; break; }
+    }
+    if (!full) return;
+    const dataUrl = b.parts.join("");
+    const tokenId = b.tokenId;
+    delete _portParts[msg.id];
+    if (!dataUrl || !tokenId) return;
+    if (onPortrait) {
+      try { onPortrait(tokenId, dataUrl); } catch (e) { console.warn("portrait", e); }
+    }
+  }
+
   const _pubQueue = [];
   let _pubBusy = false;
   function sleep(ms) {
@@ -307,6 +383,10 @@
       handleMapChunk(msg);
       return;
     }
+    if (msg.type === "portrait_chunk") {
+      handlePortraitChunk(msg);
+      return;
+    }
     if (msg.type === "map_clear" && onState) {
       onState({ mapBg: "", _forceClearMap: true }, { from: msg.from, type: "map_clear" });
       return;
@@ -341,6 +421,14 @@
               mapScale: full.mapScale,
             });
           }
+          // Token portreleri
+          try {
+            if (typeof global.__originsPushAllPortraits === "function") {
+              setTimeout(() => {
+                try { global.__originsPushAllPortraits(); } catch (_) {}
+              }, 600);
+            }
+          } catch (_) {}
         } catch (_) {}
       }, 150 + Math.random() * 400);
     }
@@ -570,6 +658,7 @@
     },
     pushState: pushState,
     pushMapImage: pushMapImage,
+    pushTokenPortrait: pushTokenPortrait,
     pushMapClear: function () {
       publish(TOPIC, { type: "map_clear", from: ensureClientId(), t: Date.now() });
     },
@@ -593,6 +682,7 @@
       onHost = h.onHost || null;
       onRuler = h.onRuler || null;
       onMusic = h.onMusic || null;
+      onPortrait = h.onPortrait || null;
     },
     isHost: function () { return false; },
     isConnected: function () { return !!connected; },
