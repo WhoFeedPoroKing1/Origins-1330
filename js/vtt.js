@@ -636,6 +636,15 @@ function initVTT() {
   });
 
   
+  document.getElementById("portraitSyncBtn")?.addEventListener("click", () => {
+    try {
+      pushAllTokenPortraits();
+      if (window.OriginsSync && OriginsSync.requestAllPortraits) OriginsSync.requestAllPortraits();
+      chatAdd("🖼 Token resimleri odaya gönderiliyor / isteniyor…", "sys");
+    } catch (e) {
+      alert("Gönderilemedi");
+    }
+  });
   document.getElementById("mapResendBtn")?.addEventListener("click", () => {
     if (!isDm()) return;
     let dataUrl = null;
@@ -1191,97 +1200,115 @@ function initVTT() {
 
   /** Portreyi küçült (oda senkronu için) */
   function compressPortrait(dataUrl, maxEdge, quality) {
-    maxEdge = maxEdge || 160;
-    quality = quality || 0.62;
+    maxEdge = maxEdge || 80;
+    quality = quality || 0.45;
     return new Promise((resolve) => {
       if (!dataUrl || String(dataUrl).indexOf("data:image") !== 0) {
-        resolve(dataUrl || "");
+        resolve("");
+        return;
+      }
+      // Zaten küçük jpeg ise dokunma
+      if (dataUrl.indexOf("image/jpeg") > 0 && dataUrl.length < 10000) {
+        resolve(dataUrl);
         return;
       }
       try {
         const img = new Image();
         img.onload = () => {
           try {
-            let w = img.naturalWidth || img.width;
-            let h = img.naturalHeight || img.height;
-            if (!w || !h) { resolve(dataUrl); return; }
-            if (w > maxEdge || h > maxEdge) {
-              const r = Math.min(maxEdge / w, maxEdge / h);
-              w = Math.round(w * r);
-              h = Math.round(h * r);
-            }
+            let w = img.naturalWidth || img.width || 1;
+            let h = img.naturalHeight || img.height || 1;
+            const r = Math.min(maxEdge / w, maxEdge / h, 1);
+            w = Math.max(1, Math.round(w * r));
+            h = Math.max(1, Math.round(h * r));
             const c = document.createElement("canvas");
             c.width = w;
             c.height = h;
-            c.getContext("2d").drawImage(img, 0, 0, w, h);
-            let out = c.toDataURL("image/jpeg", quality);
-            if (out.length > 90000) out = c.toDataURL("image/jpeg", 0.5);
-            if (out.length > 120000) out = c.toDataURL("image/jpeg", 0.38);
+            const ctx = c.getContext("2d");
+            ctx.fillStyle = "#1a1a22";
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            let q = quality;
+            let out = c.toDataURL("image/jpeg", q);
+            while (out.length > 12000 && q > 0.2) {
+              q -= 0.08;
+              out = c.toDataURL("image/jpeg", q);
+            }
+            // Hâlâ büyükse daha küçük boyut
+            if (out.length > 12000) {
+              const c2 = document.createElement("canvas");
+              c2.width = 48;
+              c2.height = 48;
+              c2.getContext("2d").drawImage(c, 0, 0, 48, 48);
+              out = c2.toDataURL("image/jpeg", 0.4);
+            }
             resolve(out);
-          } catch (_) {
-            resolve(dataUrl);
+          } catch (err) {
+            console.warn("compress", err);
+            resolve("");
           }
         };
-        img.onerror = () => resolve(dataUrl);
+        img.onerror = () => resolve("");
         img.src = dataUrl;
       } catch (_) {
-        resolve(dataUrl || "");
+        resolve("");
       }
     });
   }
 
   function broadcastTokenPortrait(tokenId, dataUrl) {
     if (!tokenId || !dataUrl) return;
-    if (String(dataUrl).indexOf("blob:") === 0) return;
-    if (String(dataUrl).indexOf("data:") !== 0) return;
+    if (String(dataUrl).indexOf("data:image") !== 0) return;
     const tk0 = tokens.find((x) => x.id === tokenId);
     const meta = {
       refId: tk0 ? (tk0.refId || "") : "",
       name: tk0 ? (tk0.name || "") : "",
     };
-    const send = (small) => {
-      if (!small || String(small).indexOf("data:") !== 0) return;
+    compressPortrait(dataUrl, 80, 0.45).then((small) => {
+      if (!small || small.length < 50) {
+        console.warn("portrait compress failed", tokenId);
+        return;
+      }
       const tk = tokens.find((x) => x.id === tokenId);
       if (tk) {
         tk.portrait = small;
         try { saveTokens(); } catch (_) {}
         try { renderTokens(); } catch (_) {}
       }
-      // refId ile de cache (aynı karakter tekrar)
       try {
         if (meta.refId) {
           const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
           cache[String(meta.refId)] = small;
+          // isimle de
+          if (meta.name) cache["name:" + meta.name] = small;
           localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
         }
       } catch (_) {}
       const trySend = (attempt) => {
         try {
-          if (!window.OriginsSync || !OriginsSync.pushTokenPortrait) return;
-          if (!OriginsSync.isConnected || !OriginsSync.isConnected()) {
-            if (attempt < 8) setTimeout(() => trySend(attempt + 1), 1000 * (attempt + 1));
+          if (!window.OriginsSync || !OriginsSync.pushTokenPortrait) {
+            if (attempt < 10) setTimeout(() => trySend(attempt + 1), 800);
             return;
           }
-          OriginsSync.pushTokenPortrait(tokenId, small, meta);
-        } catch (_) {}
+          if (!OriginsSync.isConnected || !OriginsSync.isConnected()) {
+            if (attempt < 10) setTimeout(() => trySend(attempt + 1), 800);
+            return;
+          }
+          const ok = OriginsSync.pushTokenPortrait(tokenId, small, meta);
+          if (!ok && attempt < 10) setTimeout(() => trySend(attempt + 1), 1000);
+        } catch (_) {
+          if (attempt < 10) setTimeout(() => trySend(attempt + 1), 1000);
+        }
       };
       trySend(0);
-    };
-    // Zaten küçükse direkt
-    if (String(dataUrl).length < 35000) {
-      send(dataUrl);
-      return;
-    }
-    compressPortrait(dataUrl, 128, 0.55).then(send);
+    });
   }
 
   function pushAllTokenPortraits() {
-    if (!window.OriginsSync) return;
     let delay = 0;
     tokens.forEach((tk) => {
-      if (!tk || !tk.portrait || String(tk.portrait).length < 40) return;
-      if (String(tk.portrait).indexOf("data:") !== 0) return;
-      delay += 500;
+      if (!tk || !tk.portrait || String(tk.portrait).indexOf("data:image") !== 0) return;
+      delay += 300;
       setTimeout(() => {
         try { broadcastTokenPortrait(tk.id, tk.portrait); } catch (_) {}
       }, delay);
@@ -5317,11 +5344,41 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     }
     applyCamera();
     try { redrawVision(); } catch (_) {}
+
+    // Eksik portreleri cache / pending ile doldur
+    try {
+      const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
+      const pend = window.__pendingPortraits || {};
+      let filled = false;
+      tokens.forEach((tk) => {
+        if (!tk || (tk.portrait && String(tk.portrait).indexOf("data:image") === 0)) return;
+        const cand = pend[tk.id] || pend["ref:" + tk.refId] || pend["name:" + tk.name]
+          || cache[String(tk.refId)] || cache["name:" + tk.name];
+        if (cand && String(cand).indexOf("data:image") === 0) {
+          tk.portrait = cand;
+          filled = true;
+        }
+      });
+      if (filled) {
+        try { saveTokens(); } catch (_) {}
+      }
+    } catch (_) {}
+
     renderTokens();
     renderInit();
     renderHP();
     renderInspector();
     drawAttackLine();
+    // Portre yoksa odadan iste
+    try {
+      const missing = tokens.some((tk) => !tk.portrait || String(tk.portrait).indexOf("data:image") !== 0);
+      if (missing && window.OriginsSync && OriginsSync.requestAllPortraits && OriginsSync.isConnected && OriginsSync.isConnected()) {
+        clearTimeout(window.__portraitReqTimer);
+        window.__portraitReqTimer = setTimeout(() => {
+          try { OriginsSync.requestAllPortraits(); } catch (_) {}
+        }, 1500);
+      }
+    } catch (_) {}
   }
 
   function applyTokenMove(msg) {
@@ -5379,27 +5436,31 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
         try { handleRemoteMusic(msg); } catch (_) {}
       },
       onPortrait: (tokenId, dataUrl, meta) => {
-        if (!dataUrl || String(dataUrl).indexOf("data:") !== 0) return;
+        if (!dataUrl || String(dataUrl).indexOf("data:image") !== 0) return;
         meta = meta || {};
         window.__pendingPortraits = window.__pendingPortraits || Object.create(null);
-        if (tokenId) window.__pendingPortraits[tokenId] = dataUrl;
-        if (meta.refId) {
-          window.__pendingPortraits["ref:" + meta.refId] = dataUrl;
-          try {
-            const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
-            cache[String(meta.refId)] = dataUrl;
-            localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
-          } catch (_) {}
-        }
-        let tk = tokenId ? tokens.find((x) => x.id === tokenId) : null;
-        if (!tk && meta.refId) {
-          tk = tokens.find((x) => String(x.refId) === String(meta.refId) && !x.portrait);
-        }
-        if (!tk && meta.name) {
-          tk = tokens.find((x) => x.name === meta.name && !x.portrait);
-        }
-        if (!tk) return;
-        tk.portrait = dataUrl;
+        if (tokenId) window.__pendingPortraits[String(tokenId)] = dataUrl;
+        if (meta.refId) window.__pendingPortraits["ref:" + meta.refId] = dataUrl;
+        if (meta.name) window.__pendingPortraits["name:" + meta.name] = dataUrl;
+        try {
+          const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
+          if (meta.refId) cache[String(meta.refId)] = dataUrl;
+          if (meta.name) cache["name:" + meta.name] = dataUrl;
+          localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
+        } catch (_) {}
+        // Tüm eşleşen tokenlara uygula (id / refId / isim)
+        let applied = 0;
+        tokens.forEach((tk) => {
+          if (!tk) return;
+          const match =
+            (tokenId && String(tk.id) === String(tokenId)) ||
+            (meta.refId && String(tk.refId) === String(meta.refId)) ||
+            (meta.name && tk.name === meta.name);
+          if (!match) return;
+          tk.portrait = dataUrl;
+          applied++;
+        });
+        if (!applied) return;
         try { saveTokens(); } catch (_) {}
         try { renderTokens(); } catch (_) {}
         try { renderHP(); } catch (_) {}

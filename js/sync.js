@@ -250,62 +250,36 @@
   let onPortrait = null;
 
   function pushTokenPortrait(tokenId, dataUrl, meta) {
-    if (!tokenId || !dataUrl || !connected) return false;
-    const str = String(dataUrl);
+    if (!tokenId || !dataUrl) return false;
+    if (!connected) return false;
+    let str = String(dataUrl);
     if (str.length < 30 || str.indexOf("data:") !== 0) return false;
     meta = meta || {};
-    // Tek mesaj (çoğu portre sığar)
-    if (str.length <= 45000) {
-      enqueuePublish(TOPIC, {
-        type: "portrait",
-        tokenId: tokenId,
-        refId: meta.refId || "",
-        name: meta.name || "",
-        data: str,
-        from: ensureClientId(),
-        t: Date.now(),
-      }, 40);
-      return true;
+    // Broker güvenli üst sınır (~12KB)
+    if (str.length > 14000) {
+      console.warn("portrait too large, skip", str.length);
+      return false;
     }
-    // Büyükse parçala
-    const id = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    const CHUNK = 10000;
-    const total = Math.max(1, Math.ceil(str.length / CHUNK));
-    enqueuePublish(TOPIC, {
-      type: "portrait_chunk",
-      phase: "begin",
-      id: id,
-      tokenId: tokenId,
-      refId: meta.refId || "",
-      total: total,
-      len: str.length,
+    // publish doğrudan (kuyruk gecikmesin)
+    const ok = publish(TOPIC, {
+      type: "portrait",
+      tokenId: String(tokenId),
+      refId: meta.refId ? String(meta.refId) : "",
+      name: meta.name ? String(meta.name) : "",
+      data: str,
       from: ensureClientId(),
       t: Date.now(),
-    }, 30);
-    for (let i = 0; i < total; i++) {
-      enqueuePublish(TOPIC, {
-        type: "portrait_chunk",
-        phase: "data",
-        id: id,
-        tokenId: tokenId,
-        i: i,
-        total: total,
-        data: str.slice(i * CHUNK, (i + 1) * CHUNK),
-        from: ensureClientId(),
-        t: Date.now(),
-      }, 50);
-    }
-    enqueuePublish(TOPIC, {
-      type: "portrait_chunk",
-      phase: "end",
-      id: id,
-      tokenId: tokenId,
-      total: total,
-      len: str.length,
+    });
+    return !!ok;
+  }
+
+  function requestAllPortraits() {
+    if (!connected) return;
+    publish(TOPIC, {
+      type: "request_portraits",
       from: ensureClientId(),
       t: Date.now(),
-    }, 50);
-    return true;
+    });
   }
 
   function handlePortraitChunk(msg) {
@@ -401,13 +375,28 @@
       return;
     }
     if (msg.type === "portrait") {
-      if (msg.tokenId && msg.data && onPortrait) {
-        try { onPortrait(msg.tokenId, msg.data, { refId: msg.refId, name: msg.name }); } catch (e) { console.warn(e); }
+      if (msg.data && onPortrait) {
+        try {
+          onPortrait(msg.tokenId || "", msg.data, {
+            refId: msg.refId || "",
+            name: msg.name || "",
+          });
+        } catch (e) { console.warn(e); }
       }
       return;
     }
     if (msg.type === "portrait_chunk") {
       handlePortraitChunk(msg);
+      return;
+    }
+    if (msg.type === "request_portraits") {
+      try {
+        if (typeof global.__originsPushAllPortraits === "function") {
+          setTimeout(() => {
+            try { global.__originsPushAllPortraits(); } catch (_) {}
+          }, 200 + Math.random() * 400);
+        }
+      } catch (_) {}
       return;
     }
     if (msg.type === "map_clear" && onState) {
@@ -550,6 +539,16 @@
         from: ensureClientId(),
         t: Date.now(),
       });
+      setTimeout(() => {
+        try { requestAllPortraits(); } catch (_) {}
+      }, 1200);
+      setTimeout(() => {
+        try {
+          if (typeof global.__originsPushAllPortraits === "function") {
+            global.__originsPushAllPortraits();
+          }
+        } catch (_) {}
+      }, 2000);
     });
 
     client.on("message", (topic, buf) => {
@@ -682,6 +681,7 @@
     pushState: pushState,
     pushMapImage: pushMapImage,
     pushTokenPortrait: pushTokenPortrait,
+    requestAllPortraits: requestAllPortraits,
     pushMapClear: function () {
       publish(TOPIC, { type: "map_clear", from: ensureClientId(), t: Date.now() });
     },
