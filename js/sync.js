@@ -132,7 +132,8 @@
     if (Array.isArray(out.tokens)) {
       out.tokens = out.tokens.map((tk) => {
         const t = Object.assign({}, tk);
-        if (t.portrait && String(t.portrait).length > 200) t.portrait = "";
+        // Küçük sıkıştırılmış portreler state ile gitsin (50KB altı)
+        if (t.portrait && String(t.portrait).length > 50000) t.portrait = "";
         if (t.atkSfx && String(t.atkSfx).length > 200) t.atkSfx = "";
         return t;
       });

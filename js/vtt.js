@@ -319,9 +319,16 @@ function initVTT() {
     sc.mapOX = mapOX;
     sc.mapOY = mapOY;
     sc.mapScale = mapScale;
-    sc.mapBg = sc.mapBg || null;
-    if (bgImg && bgImg.src && bgImg.style.display !== "none" && bgImg.src.startsWith("data:")) {
-      sc.mapBg = bgImg.src;
+    // Map görseli: önce mevcut bg, sonra sahne kaydı
+    if (bgImg && bgImg.src && bgImg.style.display !== "none") {
+      const src = bgImg.getAttribute("src") || bgImg.src || "";
+      if (src.indexOf("data:") === 0) sc.mapBg = src;
+    }
+    if (!sc.mapBg) {
+      try {
+        const legacy = localStorage.getItem(S.mapBg);
+        if (legacy) sc.mapBg = legacy;
+      } catch (_) {}
     }
     // full package: fog / darkness / walls / doors
     try {
@@ -338,7 +345,35 @@ function initVTT() {
     if (typeof setActiveSceneId === "function") setActiveSceneId(activeSceneId);
     // legacy mirrors
     try { save(S.tokens, tokens); } catch (_) {}
+    // Map yedeği ayrı anahtarda (yeniden girişte garanti)
+    try {
+      const sc = currentScene();
+      if (sc && sc.mapBg && String(sc.mapBg).indexOf("data:") === 0) {
+        localStorage.setItem(S.mapBg, sc.mapBg);
+      }
+      localStorage.setItem("origins_map_xf_v1", JSON.stringify({
+        mapOX: mapOX,
+        mapOY: mapOY,
+        mapScale: mapScale,
+        sceneId: activeSceneId || null,
+        t: Date.now(),
+      }));
+    } catch (_) {}
   }
+
+  // Sayfa kapanınca / gizlenince mutlaka kaydet
+  function bindMapPersistLifecycle() {
+    const saveNow = () => { try { persistScenes(); } catch (_) {} };
+    window.addEventListener("beforeunload", saveNow);
+    window.addEventListener("pagehide", saveNow);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") saveNow();
+    });
+    // periyodik yedek (30 sn)
+    setInterval(saveNow, 30000);
+  }
+  try { bindMapPersistLifecycle(); } catch (_) {}
+
 
   function applyScene(sc) {
     if (!sc) return;
@@ -499,16 +534,25 @@ function initVTT() {
       mapOX = sc.mapOX || 0;
       mapOY = sc.mapOY || 0;
       mapScale = sc.mapScale || 1;
-      if (sc.mapBg) loadMapDataUrl(sc.mapBg, { preserve: true });
-      else {
-        try {
-          const saved = localStorage.getItem(S.mapBg);
-          if (saved) {
-            sc.mapBg = saved;
-            loadMapDataUrl(saved, { preserve: true });
-          }
-        } catch (_) {}
+      // Ayrı kayıttan konum (daha güncel olabilir)
+      try {
+        const xf = JSON.parse(localStorage.getItem("origins_map_xf_v1") || "null");
+        if (xf && (xf.sceneId == null || xf.sceneId === activeSceneId || xf.sceneId === sc.id)) {
+          if (xf.mapOX != null) mapOX = xf.mapOX;
+          if (xf.mapOY != null) mapOY = xf.mapOY;
+          if (xf.mapScale != null) mapScale = xf.mapScale;
+        }
+      } catch (_) {}
+      let bg = sc.mapBg;
+      if (!bg) {
+        try { bg = localStorage.getItem(S.mapBg); } catch (_) {}
       }
+      if (bg) {
+        sc.mapBg = bg;
+        loadMapDataUrl(bg, { preserve: true });
+      }
+      applyMapXF();
+      syncMapUI();
     }
     renderSceneList();
   })();
@@ -650,6 +694,9 @@ function initVTT() {
     if (!isDm() || mapLocked) return;
     mapScale = parseFloat(e.target.value) || 1;
     applyMapXF();
+  });
+  document.getElementById("mapScaleSlider")?.addEventListener("change", () => {
+    try { persistScenes(); } catch (_) {}
   });
   document.getElementById("mapScaleReset")?.addEventListener("click", () => {
     if (!isDm() || mapLocked) return;
@@ -1140,6 +1187,83 @@ function initVTT() {
       });
     });
   }
+
+
+  /** Portreyi küçült (oda senkronu için) */
+  function compressPortrait(dataUrl, maxEdge, quality) {
+    maxEdge = maxEdge || 160;
+    quality = quality || 0.62;
+    return new Promise((resolve) => {
+      if (!dataUrl || String(dataUrl).indexOf("data:image") !== 0) {
+        resolve(dataUrl || "");
+        return;
+      }
+      try {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            let w = img.naturalWidth || img.width;
+            let h = img.naturalHeight || img.height;
+            if (!w || !h) { resolve(dataUrl); return; }
+            if (w > maxEdge || h > maxEdge) {
+              const r = Math.min(maxEdge / w, maxEdge / h);
+              w = Math.round(w * r);
+              h = Math.round(h * r);
+            }
+            const c = document.createElement("canvas");
+            c.width = w;
+            c.height = h;
+            c.getContext("2d").drawImage(img, 0, 0, w, h);
+            let out = c.toDataURL("image/jpeg", quality);
+            if (out.length > 90000) out = c.toDataURL("image/jpeg", 0.5);
+            if (out.length > 120000) out = c.toDataURL("image/jpeg", 0.38);
+            resolve(out);
+          } catch (_) {
+            resolve(dataUrl);
+          }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      } catch (_) {
+        resolve(dataUrl || "");
+      }
+    });
+  }
+
+  function broadcastTokenPortrait(tokenId, dataUrl) {
+    if (!tokenId || !dataUrl) return;
+    if (String(dataUrl).indexOf("blob:") === 0) return;
+    compressPortrait(dataUrl, 160, 0.62).then((small) => {
+      if (!small || String(small).indexOf("data:") !== 0) return;
+      const tk = tokens.find((x) => x.id === tokenId);
+      if (tk) {
+        tk.portrait = small;
+        try { saveTokens(); } catch (_) {}
+        try { renderTokens(); } catch (_) {}
+      }
+      try { scheduleSync(); } catch (_) {}
+      try {
+        if (window.OriginsSync && OriginsSync.pushTokenPortrait &&
+            OriginsSync.isConnected && OriginsSync.isConnected()) {
+          OriginsSync.pushTokenPortrait(tokenId, small);
+        }
+      } catch (_) {}
+    });
+  }
+
+  function pushAllTokenPortraits() {
+    if (!window.OriginsSync || !OriginsSync.isConnected || !OriginsSync.isConnected()) return;
+    let delay = 0;
+    tokens.forEach((tk) => {
+      if (!tk || !tk.portrait || String(tk.portrait).length < 40) return;
+      if (String(tk.portrait).indexOf("data:") !== 0) return;
+      delay += 400;
+      setTimeout(() => {
+        try { broadcastTokenPortrait(tk.id, tk.portrait); } catch (_) {}
+      }, delay);
+    });
+  }
+  window.__originsPushAllPortraits = pushAllTokenPortraits;
 
   function placeToken(cx, cy) {
     const val = document.getElementById("placeActor")?.value;
@@ -5030,7 +5154,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       ac: tk.ac,
       damage: tk.damage,
       statuses: tk.statuses,
-      portrait: "", // online: büyük dataURL gitmesin (lokal kalır)
+      portrait: (tk.portrait && String(tk.portrait).length <= 50000 && String(tk.portrait).indexOf("data:") === 0) ? tk.portrait : "",
       hasCreature: tk.hasCreature,
       creatureData: null,
       hidden: !!tk.hidden,
@@ -5090,7 +5214,18 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       tokens = st.tokens.map((tk) => {
         const old = oldById[tk.id];
         let merged = { ...tk };
-        if (old && !merged.portrait && old.portrait) merged.portrait = old.portrait;
+        if (merged.portrait && String(merged.portrait).length > 40) {
+          /* gelen portre */
+        } else if (old && old.portrait) {
+          merged.portrait = old.portrait;
+        }
+        try {
+          const pend = window.__pendingPortraits && window.__pendingPortraits[merged.id];
+          if (pend && (!merged.portrait || String(merged.portrait).length < 40)) {
+            merged.portrait = pend;
+            delete window.__pendingPortraits[merged.id];
+          }
+        } catch (_) {}
         try {
           const pend = window.__pendingPortraits && window.__pendingPortraits[merged.id];
           if (pend && !merged.portrait) {
@@ -5113,9 +5248,13 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     if (st.turnIdx != null) turnIdx = st.turnIdx;
     if (st.atkFromId !== undefined) atkFromId = st.atkFromId;
     if (st.atkToId !== undefined) atkToId = st.atkToId;
-    if (st.mapOX != null) mapOX = st.mapOX;
-    if (st.mapOY != null) mapOY = st.mapOY;
-    if (st.mapScale != null) mapScale = st.mapScale;
+    // Map konumu: sadece karşıdan map görseli geldiyse güncelle (yoksa yerel kaydı ezme)
+    const _remoteHasMap = !!(st.mapBg && String(st.mapBg).length > 20);
+    if (_remoteHasMap) {
+      if (st.mapOX != null) mapOX = st.mapOX;
+      if (st.mapOY != null) mapOY = st.mapOY;
+      if (st.mapScale != null) mapScale = st.mapScale;
+    }
     if (Array.isArray(st.fogRects)) fogRects = st.fogRects;
     if (Array.isArray(st.darknessRects)) darknessRects = st.darknessRects;
     if (Array.isArray(st.walls)) walls = st.walls;
