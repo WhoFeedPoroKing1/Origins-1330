@@ -9,6 +9,39 @@ function initVTT() {
   const CELL = 50;
   const FEET = 5;
 
+  /** Izgara boyut kademeleri (kare sayısı). Küçük = yarım kare */
+  const TOKEN_SIZE_STEPS = [0.5, 1, 2, 3, 4, 6];
+  const TOKEN_SIZE_LABELS = {
+    0.5: "Küçük (½)",
+    1: "Orta (1×1)",
+    2: "Büyük (2×2)",
+    3: "Çok büyük (3×3)",
+    4: "Devasa (4×4)",
+    6: "Titan (6×6)",
+  };
+  function normalizeTokenSize(s) {
+    const n = +s;
+    if (!isFinite(n) || n <= 0) return 1;
+    // eski sürekli ölçek (0.4–3) → en yakın kademe
+    let best = 1, bestD = 1e9;
+    TOKEN_SIZE_STEPS.forEach((step) => {
+      const d = Math.abs(step - n);
+      if (d < bestD) { bestD = d; best = step; }
+    });
+    return best;
+  }
+  function tokenFootprint(t) {
+    return normalizeTokenSize(t && t.size != null ? t.size : 1);
+  }
+  /** cx,cy = sol-üst kare; merkez world px */
+  function tokenCenterWorld(t) {
+    const fp = tokenFootprint(t);
+    return {
+      x: t.cx * CELL + (fp * CELL) / 2,
+      y: t.cy * CELL + (fp * CELL) / 2,
+    };
+  }
+
   // Camera (screen = world * scale + pan)
   let scale = 1;
   let panX = 0;
@@ -1084,10 +1117,17 @@ function initVTT() {
         + (t.lightOn ? " lit" : "")
         + stList.map((s) => " st-" + s.id).join("");
       // world coords: cell center
-      el.style.left = t.cx * CELL + CELL / 2 + "px";
-      el.style.top = t.cy * CELL + CELL / 2 + "px";
-      const sz = Math.min(3, Math.max(0.4, +(t.size != null ? t.size : 1) || 1));
-      el.style.setProperty("--tok-scale", String(sz));
+      {
+        const fp = tokenFootprint(t);
+        const ctr = tokenCenterWorld(t);
+        const px = Math.max(8, fp * CELL);
+        el.style.left = ctr.x + "px";
+        el.style.top = ctr.y + "px";
+        el.style.width = px + "px";
+        el.style.height = px + "px";
+        el.style.setProperty("--tok-scale", "1");
+        el.dataset.size = String(fp);
+      }
       el.dataset.id = t.id;
 
       // Faction borders override title colors (dost mavi, düşman kırmızı, nötr beyaz)
@@ -1152,12 +1192,13 @@ function initVTT() {
           if (!canControlToken(t) && !isDm()) return;
           selectedId = t.id;
           const rect = board.getBoundingClientRect();
-          const cx = rect.left + (t.cx * CELL + CELL / 2) * scale + panX;
-          const cy = rect.top + (t.cy * CELL + CELL / 2) * scale + panY;
+          const ctr = tokenCenterWorld(t);
+          const cx = rect.left + ctr.x * scale + panX;
+          const cy = rect.top + ctr.y * scale + panY;
           drag = {
             type: "resize",
             id: t.id,
-            startSize: Math.min(3, Math.max(0.4, +(t.size != null ? t.size : 1) || 1)),
+            startSize: tokenFootprint(t),
             cx: cx,
             cy: cy,
             ox: e.clientX,
@@ -1434,6 +1475,7 @@ function initVTT() {
       creatureData: data.creature || null,
       owner: ownerName,
       portrait,
+      size: 1,
       atkSfx: "",
       atkSfxName: data.atkSfxName || "",
       atkYt: data.atkYt || "",
@@ -1519,15 +1561,21 @@ function initVTT() {
     if (drag.type === "resize") {
       const tk = tokens.find((x) => x.id === drag.id);
       if (!tk) return;
+      // Merkezden köşeye mesafe → kare sayısı (yarıçap ≈ fp*CELL/2)
       const dist = Math.hypot(e.clientX - drag.cx, e.clientY - drag.cy) / Math.max(0.001, scale);
-      // ~25px yarıçap = 1.0 boyut
-      let ns = dist / 28;
-      ns = Math.min(3, Math.max(0.4, ns));
-      // 0.05 adım
-      ns = Math.round(ns * 20) / 20;
+      const rawFp = (dist * 2) / CELL; // çap / CELL
+      let ns = normalizeTokenSize(rawFp);
       tk.size = ns;
       const el = tokLayer.querySelector('.tok[data-id="' + tk.id + '"]');
-      if (el) el.style.setProperty("--tok-scale", String(ns));
+      if (el) {
+        const ctr = tokenCenterWorld(tk);
+        const px = Math.max(8, ns * CELL);
+        el.style.left = ctr.x + "px";
+        el.style.top = ctr.y + "px";
+        el.style.width = px + "px";
+        el.style.height = px + "px";
+        el.dataset.size = String(ns);
+      }
       return;
     }
     if (drag.type === "token") {
@@ -1546,8 +1594,9 @@ function initVTT() {
         tk.cy = ncy;
         const el = tokLayer.querySelector('.tok[data-id="' + tk.id + '"]');
         if (el) {
-          el.style.left = tk.cx * CELL + CELL / 2 + "px";
-          el.style.top = tk.cy * CELL + CELL / 2 + "px";
+          const ctr = tokenCenterWorld(tk);
+          el.style.left = ctr.x + "px";
+          el.style.top = ctr.y + "px";
           el.classList.add("moving");
         }
         if (typeof window.__originsRedrawVision === "function") {
@@ -1836,6 +1885,10 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       ` : ""}
       <div style="font-size:0.65rem;color:#6b665c;margin:0.35rem 0 0.2rem">Durum efektleri</div>
       <div class="status-grid" id="tokStatusGrid"></div>
+      <div style="font-size:0.65rem;color:#6b665c;margin:0.4rem 0 0.15rem">Token boyutu (ızgara)</div>
+      <select id="tokSize" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem">
+        ${TOKEN_SIZE_STEPS.map((s) => `<option value="${s}" ${normalizeTokenSize(t.size) === s ? "selected" : ""}>${TOKEN_SIZE_LABELS[s] || s}</option>`).join("")}
+      </select>
       <button type="button" class="tbtn" id="tokDel" style="width:100%;margin-top:0.4rem;color:#e05a5a;border-color:rgba(224,90,90,0.4)">Token sil</button>
     </div>`;
     const allowEdit = canEditToken(t) || isDm();
@@ -1969,6 +2022,13 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
         });
       });
     }
+    document.getElementById("tokSize")?.addEventListener("change", (e) => {
+      if (!allowEdit) return;
+      t.size = normalizeTokenSize(e.target.value);
+      saveTokens();
+      renderTokens();
+      scheduleSync();
+    });
     document.getElementById("tokDel")?.addEventListener("click", () => {
       if (!canDeleteToken(t)) {
         alert("Sadece kendi token’ını veya yoldaşını silebilirsin. Üstten “Ben” ile karakterini seç.");
@@ -4927,6 +4987,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       statuses: [],
       owner: base.owner || (loadRoster().find((c) => String(c.id) === String(base.refId)) || {}).name || "",
       portrait: cr.portrait || "",
+      size: 1,
       faction: base.faction || "ally",
     };
     // Yoldaş her zaman çağıranın kontrolünde
@@ -5262,7 +5323,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       damage: tk.damage,
       statuses: tk.statuses,
       portrait: "",
-      size: tk.size != null ? tk.size : 1,
+      size: normalizeTokenSize(tk.size),
       hasCreature: tk.hasCreature,
       creatureData: null,
       hidden: !!tk.hidden,
@@ -5469,8 +5530,9 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     tk.cy = msg.cy;
     const el = tokLayer.querySelector('.tok[data-id="' + tk.id + '"]');
     if (el) {
-      el.style.left = tk.cx * CELL + CELL / 2 + "px";
-      el.style.top = tk.cy * CELL + CELL / 2 + "px";
+      const ctr = tokenCenterWorld(tk);
+      el.style.left = ctr.x + "px";
+      el.style.top = ctr.y + "px";
     } else {
       renderTokens();
     }
