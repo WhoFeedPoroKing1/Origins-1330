@@ -142,6 +142,7 @@
             <label class="field"><span>Max can</span><input type="number" id="dmHpMax" min="1" value="15" /></label>
             <label class="field full"><span>Açıklama</span><textarea id="dmDesc" rows="2"></textarea></label>
             <label class="field"><span>AC</span><input type="number" id="dmAc" min="0" value="12" /></label>
+            <label class="field"><span>Hız (ini +)</span><input type="number" id="dmSpd" min="0" max="20" value="3" /></label>
             <label class="field"><span>Hasar</span><input type="text" id="dmDmg" value="1d6" /></label>
           </div>
           <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
@@ -346,6 +347,8 @@
         desc: document.getElementById("dmDesc").value.trim(),
         hp, hpMax,
         ac: parseInt(document.getElementById("dmAc")?.value, 10) || 12,
+        spd: parseInt(document.getElementById("dmSpd")?.value, 10) || 0,
+        speed: parseInt(document.getElementById("dmSpd")?.value, 10) || 0,
         damage: (document.getElementById("dmDmg")?.value || "1d6").trim(),
         portrait: dmPortrait || "",
         enemy: dmRole === "dusman",
@@ -466,6 +469,7 @@
           document.getElementById("dmHp").value = c.hp ?? 15;
           document.getElementById("dmHpMax").value = c.hpMax ?? 15;
           if (document.getElementById("dmAc")) document.getElementById("dmAc").value = c.ac ?? 12;
+          if (document.getElementById("dmSpd")) document.getElementById("dmSpd").value = c.spd ?? c.speed ?? 3;
           if (document.getElementById("dmDmg")) document.getElementById("dmDmg").value = c.damage || "1d6";
           const hasCr = !!(c.creature);
           const cb = document.getElementById("dmHasCreature");

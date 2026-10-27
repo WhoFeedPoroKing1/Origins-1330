@@ -33,6 +33,35 @@ function initVTT() {
   function tokenFootprint(t) {
     return normalizeTokenSize(t && t.size != null ? t.size : 1);
   }
+  function getTokenSpeed(tok) {
+    if (!tok) return 0;
+    if (tok.speed != null && isFinite(+tok.speed)) return Math.max(0, Math.min(20, +tok.speed | 0));
+    try {
+      if (tok.refId != null) {
+        const roster = typeof loadRoster === "function" ? loadRoster() : [];
+        const ch = roster.find((c) => String(c.id) === String(tok.refId));
+        if (ch) {
+          if (tok.form === "ally" && ch.creature && ch.creature.spd != null)
+            return Math.max(0, +ch.creature.spd || 0);
+          const hu = ch.human || ch;
+          if (hu.spd != null) return Math.max(0, +hu.spd || 0);
+          if (ch.spd != null) return Math.max(0, +ch.spd || 0);
+        }
+        const en = typeof loadEnemies === "function" ? loadEnemies() : [];
+        const e = en.find((x) => String(x.id) === String(tok.refId));
+        if (e && (e.spd != null || e.speed != null)) return Math.max(0, +(e.spd != null ? e.spd : e.speed) || 0);
+        const dm = typeof loadDmChars === "function" ? loadDmChars() : [];
+        const d = dm.find((x) => String(x.id) === String(tok.refId));
+        if (d && (d.spd != null || d.speed != null)) return Math.max(0, +(d.spd != null ? d.spd : d.speed) || 0);
+      }
+    } catch (_) {}
+    return 0;
+  }
+  function rollInitiativeScore(tok) {
+    const d20 = Math.floor(Math.random() * 20) + 1;
+    const spd = getTokenSpeed(tok);
+    return { d20: d20, speed: spd, total: d20 + spd };
+  }
   /** cx,cy = sol-üst kare; merkez world px */
   function tokenCenterWorld(t) {
     const fp = tokenFootprint(t);
@@ -641,7 +670,7 @@ function initVTT() {
       try {
         const img = new Image();
         img.onload = () => {
-          const maxEdge = 2800;
+          const maxEdge = 4096;
           let w = img.naturalWidth, h = img.naturalHeight;
           if (w > maxEdge || h > maxEdge) {
             const r = Math.min(maxEdge / w, maxEdge / h);
@@ -654,9 +683,9 @@ function initVTT() {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
           ctx.drawImage(img, 0, 0, w, h);
-          let out = c.toDataURL("image/jpeg", 0.88);
-          if (out.length > 3.5e6) out = c.toDataURL("image/jpeg", 0.75);
-          if (out.length > 4.5e6) out = c.toDataURL("image/jpeg", 0.6);
+          let out = c.toDataURL("image/jpeg", 0.92);
+          if (out.length > 5e6) out = c.toDataURL("image/jpeg", 0.82);
+          if (out.length > 6.5e6) out = c.toDataURL("image/jpeg", 0.7);
           finishMap(out);
         };
         img.onerror = () => finishMap(rawUrl);
@@ -1476,6 +1505,9 @@ function initVTT() {
       owner: ownerName,
       portrait,
       size: 1,
+      speed: (kind === "p" && data.human && data.human.spd != null)
+        ? (+data.human.spd || 0)
+        : (data.spd != null ? (+data.spd || 0) : (data.speed != null ? (+data.speed || 0) : 0)),
       atkSfx: "",
       atkSfxName: data.atkSfxName || "",
       atkYt: data.atkYt || "",
@@ -1885,6 +1917,8 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       ` : ""}
       <div style="font-size:0.65rem;color:#6b665c;margin:0.35rem 0 0.2rem">Durum efektleri</div>
       <div class="status-grid" id="tokStatusGrid"></div>
+      <label style="font-size:0.62rem;color:#6b665c">Hız (inisiyatif +)</label>
+      <input type="number" id="tokSpeed" min="0" max="20" value="${getTokenSpeed(t)}" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem" />
       <div style="font-size:0.65rem;color:#6b665c;margin:0.4rem 0 0.15rem">Token boyutu (ızgara)</div>
       <select id="tokSize" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem">
         ${TOKEN_SIZE_STEPS.map((s) => `<option value="${s}" ${normalizeTokenSize(t.size) === s ? "selected" : ""}>${TOKEN_SIZE_LABELS[s] || s}</option>`).join("")}
@@ -2022,6 +2056,12 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
         });
       });
     }
+    document.getElementById("tokSpeed")?.addEventListener("change", (e) => {
+      if (!allowEdit) return;
+      t.speed = Math.max(0, Math.min(20, +e.target.value || 0));
+      saveTokens();
+      scheduleSync();
+    });
     document.getElementById("tokSize")?.addEventListener("change", (e) => {
       if (!allowEdit) return;
       t.size = normalizeTokenSize(e.target.value);
@@ -2422,24 +2462,42 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   function renderInit() {
     const el = document.getElementById("initList");
     if (!el) return;
-    renderCombatHp();
+    // Ekle select doldur
+    const addSel = document.getElementById("initAddSelect");
+    if (addSel) {
+      const inIds = new Set(initiative.map((r) => r.id));
+      const opts = tokens
+        .filter((tk) => !inIds.has(tk.id))
+        .filter((tk) => isDm() || !tk.hidden)
+        .map((tk) => `<option value="${esc(tk.id)}">${esc(tk.name || "?")}${tk.hidden ? " 👁" : ""}${tk.enemy ? " (düşman)" : ""}</option>`)
+        .join("");
+      addSel.innerHTML = '<option value="">— Token seç —</option>' + opts;
+    }
     if (!initiative.length) {
-      el.innerHTML = '<div style="font-size:0.72rem;color:#6b665c">Savaş yok</div>';
+      el.innerHTML = '<div style="font-size:0.7rem;color:#6b665c">Savaş yok — Savaş veya Ekle kullan</div>';
       return;
     }
     el.innerHTML = initiative
       .map((r, i) => {
-        const tok = tokens.find((x) => x.id === r.id);
-        const hid = !!(r.hidden || (tok && tok.hidden));
-        if (hid && !isDm()) return "";
-        return `<div class="init-row ${r.enemy ? "en" : ""} ${i === turnIdx ? "cur" : ""} ${hid ? "hidden-init" : ""}" data-init-idx="${i}" draggable="${isDm() ? "true" : "false"}">
-            <span class="init-sc">${r.score}</span>
-            <span>${i === turnIdx ? "▶ " : ""}${esc(r.name)}${hid ? " 👁" : ""}${i === turnIdx ? " · SIRA" : ""}</span>
+        if (r.hidden && !isDm()) return "";
+        const hid = r.hidden ? " 👁" : "";
+        const spdTip = (r.speed ? (" · Hız +" + r.speed) : "") + (r.d20 != null ? (" · d20 " + r.d20) : "");
+        return `<div class="init-row ${r.enemy ? "en" : ""} ${i === turnIdx ? "cur" : ""} ${r.hidden ? "hidden-init" : ""}" data-init-idx="${i}" data-init-id="${esc(r.id)}" draggable="${isDm() ? "true" : "false"}">
+            <span class="init-sc" title="${esc(String(r.score) + spdTip)}">${r.score}</span>
+            <span class="init-name">${i === turnIdx ? "▶ " : ""}${esc(r.name)}${hid}${i === turnIdx ? " · SIRA" : ""}</span>
+            ${isDm() ? `<button type="button" class="init-rm" data-rm-id="${esc(r.id)}" title="Çıkar">×</button>` : ""}
           </div>`;
       })
       .join("");
-    // reorder by drag within list
-    el.querySelectorAll(".init-row").forEach((row) => {
+    el.querySelectorAll(".init-rm").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDm()) return;
+        removeFromInitiative(btn.dataset.rmId);
+      });
+    });
+el.querySelectorAll(".init-row").forEach((row) => {
       row.addEventListener("dragstart", (e) => {
         e.dataTransfer.setData("text/init-idx", row.dataset.initIdx);
       });
@@ -2461,6 +2519,30 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     });
   }
 
+  document.getElementById("initAddBtn")?.addEventListener("click", () => {
+    if (!isDm()) return alert("Sadece DM inisiyatife ekleyebilir.");
+    const sel = document.getElementById("initAddSelect");
+    const id = sel && sel.value;
+    if (!id) return alert("Token seç.");
+    const tk = tokens.find((x) => x.id === id);
+    if (!tk) return;
+    addTokenToInitiative(tk);
+    // Gizli ise zar gösterimi sadece DM
+    if (tk.hidden) {
+      const row = initiative.find((r) => r.id === tk.id);
+      if (row) {
+        void showDiceOverlay("???", "İnisiyatif (gizli)", [row.d20 || row.score], row.score,
+          row.speed ? ("d20 " + (row.d20 || "?") + " + Hız " + row.speed) : null,
+          { dmOnly: true });
+      }
+    } else {
+      const row = initiative.find((r) => r.id === tk.id);
+      if (row) {
+        void showDiceOverlay(tk.name, "İnisiyatif", [row.d20 || row.score], row.score,
+          row.speed ? ("d20 " + (row.d20 || "?") + " + Hız " + row.speed) : null);
+      }
+    }
+  });
   document.getElementById("startBattle")?.addEventListener("click", async () => {
     if (!isDm()) return alert("Savaş zarını sadece DM atabilir.");
     if (initiative.length) {
@@ -2476,26 +2558,33 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       enemy: !!tk.enemy,
       form: tk.form || "char",
       hidden: !!tk.hidden,
+      speed: getTokenSpeed(tk),
     }));
     initiative = [];
     for (const c of combatants) {
-      const score = rollDie(20);
-      // Gizli düşman zarları sadece DM ekranında
+      const tk = tokens.find((x) => x.id === c.id);
+      const roll = rollInitiativeScore(tk || c);
+      const detail = roll.speed ? ("d20 " + roll.d20 + " + Hız " + roll.speed) : ("d20 " + roll.d20);
       await showDiceOverlay(
-        c.name,
+        c.hidden ? "???" : c.name,
         "İnisiyatif" + (c.hidden ? " (gizli)" : ""),
-        [score],
-        score,
-        null,
+        [roll.d20],
+        roll.total,
+        detail,
         { dmOnly: !!c.hidden }
       );
-      initiative.push({ ...c, score });
+      initiative.push({
+        id: c.id, refId: c.refId, name: c.name, enemy: c.enemy, form: c.form,
+        hidden: c.hidden, speed: roll.speed, score: roll.total, d20: roll.d20,
+      });
     }
     initiative.sort((a, b) => b.score - a.score);
     turnIdx = 0;
     renderInit();
     renderTokens();
-    chatAdd("Savaş başladı · " + combatants.length + " token (gizliler sadece DM sırada)", "sys");
+    const vis = combatants.filter((c) => !c.hidden).length;
+    const hidN = combatants.length - vis;
+    chatAdd("Savaş başladı · " + vis + " görünür" + (hidN && isDm() ? " · " + hidN + " gizli (DM)" : ""), "sys");
     scheduleSync();
   });
   document.getElementById("nextTurn")?.addEventListener("click", () => {
@@ -2513,27 +2602,52 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   });
 
 
-  function addTokenToInitiative(tok, score) {
+  function addTokenToInitiative(tok, score, opts) {
     if (!tok) return;
+    opts = opts || {};
     if (initiative.some((x) => x.id === tok.id)) {
-      chatAdd(esc(tok.name) + " zaten sırada", "sys");
+      if (!opts.silent) chatAdd(esc(tok.name) + " zaten sırada", "sys");
       return;
     }
-    const sc = score != null ? score : (Math.floor(Math.random() * 20) + 1);
+    const spd = getTokenSpeed(tok);
+    let d20, sc;
+    if (score != null && opts.rawScore) {
+      d20 = score; sc = score;
+    } else if (score != null) {
+      d20 = score; sc = score + spd;
+    } else {
+      const roll = rollInitiativeScore(tok);
+      d20 = roll.d20; sc = roll.total;
+    }
     initiative.push({
-      id: tok.id,
-      refId: tok.refId,
-      name: tok.name || "?",
-      enemy: !!tok.enemy,
-      form: tok.form || "char",
-      score: sc,
-      hidden: !!tok.hidden,
+      id: tok.id, refId: tok.refId, name: tok.name || "?",
+      enemy: !!tok.enemy, form: tok.form || "char",
+      score: sc, d20: d20, speed: spd, hidden: !!tok.hidden,
     });
     initiative.sort((a, b) => b.score - a.score);
     renderInit();
     renderTokens();
     scheduleSync();
-    chatAdd(esc(tok.name) + " inisiyatife eklendi (" + sc + ")", "sys");
+    if (opts.silent) return;
+    if (tok.hidden && !isDm()) return;
+    const label = tok.hidden ? "Gizli token" : esc(tok.name);
+    chatAdd(label + " inisiyatife eklendi (" + sc + (spd ? " · Hız +" + spd : "") + ")", "sys");
+  }
+
+  function removeFromInitiative(id) {
+    const idx = initiative.findIndex((r) => r.id === id);
+    if (idx < 0) return;
+    const row = initiative[idx];
+    initiative.splice(idx, 1);
+    if (!initiative.length) turnIdx = 0;
+    else if (turnIdx >= initiative.length) turnIdx = initiative.length - 1;
+    else if (idx < turnIdx) turnIdx--;
+    renderInit();
+    renderTokens();
+    scheduleSync();
+    if (row && !(row.hidden && !isDm())) {
+      chatAdd((row.hidden ? "Gizli token" : esc(row.name)) + " inisiyatiften çıkarıldı", "sys");
+    }
   }
 
 
@@ -4988,6 +5102,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       owner: base.owner || (loadRoster().find((c) => String(c.id) === String(base.refId)) || {}).name || "",
       portrait: cr.portrait || "",
       size: 1,
+      speed: cr.spd != null ? (+cr.spd || 0) : (base.speed || 0),
       faction: base.faction || "ally",
     };
     // Yoldaş her zaman çağıranın kontrolünde
@@ -5611,6 +5726,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
         });
       },
       onChat: (msg) => {
+        if (msg.dmOnly && !isDm()) return;
         if (msg.whisperTo) {
           const me = currentDisplayName();
           const myId = OriginsSync.clientId();
