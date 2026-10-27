@@ -872,6 +872,17 @@ function initVTT() {
     }
     const fl = document.getElementById("vttFx");
     if (fl) fl.style.pointerEvents = (t === "ruler" || t === "pan" || isAoe) ? "none" : "auto";
+    ["vttGrid", "vttDraw", "vttFog"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (t === "ruler" || t === "pan" || isAoe) {
+        el.style.pointerEvents = "none";
+      } else if (id === "vttFog" && el.classList.contains("paint")) {
+        el.style.pointerEvents = "auto";
+      } else {
+        el.style.pointerEvents = "";
+      }
+    });
   }
   document.querySelectorAll("[data-tool]").forEach((b) => {
     b.addEventListener("click", () => setTool(b.dataset.tool));
@@ -1617,8 +1628,9 @@ function initVTT() {
   // ── Pointer ──
   board.addEventListener("pointerdown", (e) => {
     if (e.target.closest(".call-ally-btn, button, a, input, select, textarea, label")) return;
-    // Cetvel açıkken token/vfx tıklamayı engellemez
-    if (tool !== "ruler" && e.target.closest(".tok, .vfx")) return;
+    // Cetvel / alan açıkken token/vfx tıklamayı engelleme
+    const toolIsAoe = String(tool || "").indexOf("aoe-") === 0;
+    if (tool !== "ruler" && !toolIsAoe && e.target.closest(".tok, .vfx")) return;
     const w = worldFromClient(e.clientX, e.clientY);
 
     // Map move: DM only + unlocked
@@ -1644,12 +1656,15 @@ function initVTT() {
       e.preventDefault();
       return;
     }
-    if (String(tool).indexOf("aoe-") === 0) {
+    if (String(tool).indexOf("aoe-") === 0 || toolIsAoe) {
       const cx = Math.floor(w.x / CELL);
       const cy = Math.floor(w.y / CELL);
       const shape = String(tool).replace("aoe-", "") || "circle";
       drag = { type: "aoe", aoe: { shape: shape, ox: cx, oy: cy, ex: cx, ey: cy } };
+      try { board.setPointerCapture(e.pointerId); } catch (_) {}
       e.preventDefault();
+      e.stopPropagation();
+      try { redrawOverlays(); } catch (_) {}
       return;
     }
     if (tool === "token") {
@@ -1747,13 +1762,42 @@ function initVTT() {
       renderVfx();
       return;
     }
+    if (drag.type === "aoe" && drag.aoe) {
+      const wp = worldFromClient(e.clientX, e.clientY);
+      let ex = Math.floor(wp.x / CELL);
+      let ey = Math.floor(wp.y / CELL);
+      // en az 1 kare yarıçap / uzunluk
+      if (ex === drag.aoe.ox && ey === drag.aoe.oy) {
+        ex = drag.aoe.ox + 1;
+      }
+      drag.aoe.ex = ex;
+      drag.aoe.ey = ey;
+      try { redrawOverlays(); } catch (_) {}
+      const now = Date.now();
+      if (!drag._lastAoeSync || now - drag._lastAoeSync > 100) {
+        drag._lastAoeSync = now;
+        try {
+          if (window.OriginsSync && OriginsSync.pushRuler) {
+            OriginsSync.pushRuler({
+              aoe: true,
+              shape: drag.aoe.shape,
+              ox: drag.aoe.ox, oy: drag.aoe.oy,
+              ex: drag.aoe.ex, ey: drag.aoe.ey,
+              name: (typeof currentDisplayName === "function" ? currentDisplayName() : null)
+                || (document.getElementById("displayName")?.value || "").trim()
+                || "Oyuncu",
+            });
+          }
+        } catch (_) {}
+      }
+      return;
+    }
     if (drag.type === "ruler" && rulerA) {
       const wp = worldFromClient(e.clientX, e.clientY);
       drag.rulerEnd = wp;
       endPointerDrag._lastX = e.clientX;
       endPointerDrag._lastY = e.clientY;
       drawRuler(rulerA, wp);
-      // canlı göster (bırakınca silinecek)
       const ecx = Math.floor(wp.x / CELL);
       const ecy = Math.floor(wp.y / CELL);
       const now = Date.now();
@@ -1914,9 +1958,10 @@ function initVTT() {
   }
 
   function aoeFeet(ox, oy, ex, ey, shape) {
-    const dx = ex - ox, dy = ey - oy;
-    if (shape === "square") return Math.round(Math.max(Math.abs(dx), Math.abs(dy)) * FEET);
-    return Math.round(Math.hypot(dx, dy) * FEET);
+    const dx = Math.abs(ex - ox), dy = Math.abs(ey - oy);
+    if (shape === "square") return Math.round(Math.max(dx, dy) * FEET);
+    if (shape === "circle") return Math.round(Math.hypot(ex - ox, ey - oy) * FEET);
+    return Math.round(Math.hypot(ex - ox, ey - oy) * FEET);
   }
 
   function drawAoeTemplate(aoe, color, label, tagId) {
@@ -1928,23 +1973,26 @@ function initVTT() {
     const sx = (x) => x * scale + panX;
     const sy = (y) => y * scale + panY;
     dctx.save();
-    dctx.fillStyle = "rgba(212, 175, 55, 0.15)";
-    if (color.indexOf("90,180,255") >= 0) dctx.fillStyle = "rgba(90, 180, 255, 0.15)";
-    dctx.strokeStyle = color;
-    dctx.lineWidth = 2;
+    dctx.fillStyle = color.indexOf("90,180,255") >= 0 ? "rgba(90, 180, 255, 0.22)" : "rgba(212, 175, 55, 0.22)";
+    dctx.strokeStyle = color.indexOf("90,180,255") >= 0 ? "rgba(120, 200, 255, 0.95)" : "rgba(232, 200, 80, 0.95)";
+    dctx.lineWidth = 2.5;
     dctx.setLineDash([6, 4]);
     const shape = aoe.shape || "circle";
     if (shape === "circle") {
-      const r = Math.hypot(ex - ox, ey - oy);
+      let r = Math.hypot(ex - ox, ey - oy);
+      if (r < CELL * 0.5) r = CELL; // min 1 kare
       dctx.beginPath();
-      dctx.arc(sx(ox), sy(oy), Math.max(1, r * scale), 0, Math.PI * 2);
+      dctx.arc(sx(ox), sy(oy), Math.max(2, r * scale), 0, Math.PI * 2);
       dctx.fill();
       dctx.stroke();
     } else if (shape === "square") {
-      const half = Math.max(Math.abs(ex - ox), Math.abs(ey - oy));
-      const x0 = ox - half, y0 = oy - half, side = half * 2;
+      // köşeden köşeye dikdörtgen (ızgara hizalı)
+      const minX = Math.min(aoe.ox, aoe.ex) * CELL;
+      const minY = Math.min(aoe.oy, aoe.ey) * CELL;
+      const maxX = (Math.max(aoe.ox, aoe.ex) + 1) * CELL;
+      const maxY = (Math.max(aoe.oy, aoe.ey) + 1) * CELL;
       dctx.beginPath();
-      dctx.rect(sx(x0), sy(y0), side * scale, side * scale);
+      dctx.rect(sx(minX), sy(minY), (maxX - minX) * scale, (maxY - minY) * scale);
       dctx.fill();
       dctx.stroke();
     } else if (shape === "cone") {
