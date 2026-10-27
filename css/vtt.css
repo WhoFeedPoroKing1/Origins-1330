@@ -146,6 +146,8 @@
   border-radius: 50%;
   border: 2.5px solid #d4af37;
   background: radial-gradient(circle at 32% 28%, #2a2a38, #12121a);
+  background-size: cover;
+  background-position: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -153,12 +155,14 @@
   font-weight: 700;
   font-size: 13px;
   color: #d4af37;
+  --tok-scale: 1;
+  transform: translate(-50%, -50%) scale(var(--tok-scale, 1));
+  transform-origin: center center;
   cursor: grab;
   user-select: none;
   box-shadow: 0 3px 12px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
   z-index: 5;
   box-sizing: border-box;
-  transform: translate(-50%, -50%);
 }
 .tok:active { cursor: grabbing; }
 .tok.sel {
@@ -916,7 +920,7 @@
 
 /* ── Token animations ── */
 .tok {
-  transition: left 0.18s ease-out, top 0.18s ease-out, box-shadow 0.2s, filter 0.25s, opacity 0.25s;
+  transition: left 0.18s ease-out, top 0.18s ease-out, box-shadow 0.2s, filter 0.25s, opacity 0.25s, transform 0.15s ease-out;
   animation: tok-idle 2.8s ease-in-out infinite;
 }
 .tok.enemy {

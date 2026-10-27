@@ -604,11 +604,11 @@ function initVTT() {
         bgImg.onerror = () => alert("Map görseli yüklenemedi");
         bgImg.src = dataUrl;
       }
-      // Sıkıştır: max 1600px JPEG ~ kalite 0.72 (WebRTC limitine sığsın)
+      // Yüksek çözünürlük tut (büyütünce daha az pikselleşsin) + yumuşak ölçek
       try {
         const img = new Image();
         img.onload = () => {
-          const maxEdge = 1600;
+          const maxEdge = 2800;
           let w = img.naturalWidth, h = img.naturalHeight;
           if (w > maxEdge || h > maxEdge) {
             const r = Math.min(maxEdge / w, maxEdge / h);
@@ -617,11 +617,13 @@ function initVTT() {
           }
           const c = document.createElement("canvas");
           c.width = w; c.height = h;
-          c.getContext("2d").drawImage(img, 0, 0, w, h);
-          let out = c.toDataURL("image/jpeg", 0.72);
-          // hâlâ çok büyükse daha agresif
-          if (out.length > 1.8e6) out = c.toDataURL("image/jpeg", 0.55);
-          if (out.length > 2.5e6) out = c.toDataURL("image/jpeg", 0.4);
+          const ctx = c.getContext("2d");
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, w, h);
+          let out = c.toDataURL("image/jpeg", 0.88);
+          if (out.length > 3.5e6) out = c.toDataURL("image/jpeg", 0.75);
+          if (out.length > 4.5e6) out = c.toDataURL("image/jpeg", 0.6);
           finishMap(out);
         };
         img.onerror = () => finishMap(rawUrl);
@@ -6934,8 +6936,26 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       el.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (isDm() && mapDrawMode === "doorErase") {
+          doors = (doors || []).filter((x) => x.id !== d.id);
+          persistVision();
+          renderDoors();
+          scheduleSync();
+          return;
+        }
         const sel = tokens.find((x) => x.id === selectedId);
         toggleDoor(d.id, sel || null);
+      });
+      // Sağ tık: DM tek kapı sil
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDm()) return;
+        if (!confirm("Bu kapı silinsin mi?")) return;
+        doors = (doors || []).filter((x) => x.id !== d.id);
+        persistVision();
+        renderDoors();
+        scheduleSync();
       });
       layer.appendChild(el);
     });
@@ -7018,6 +7038,10 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   document.getElementById("doorDraw")?.addEventListener("click", () => {
     if (!isDm()) return alert("Sadece DM");
     setMapDrawMode(mapDrawMode === "door" ? null : "door");
+  });
+  document.getElementById("doorErase")?.addEventListener("click", () => {
+    if (!isDm()) return alert("Sadece DM");
+    setMapDrawMode(mapDrawMode === "doorErase" ? null : "doorErase");
   });
   document.getElementById("doorClear")?.addEventListener("click", () => {
     if (!isDm()) return;
@@ -7125,6 +7149,22 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           persistVision();
           scheduleSync();
         }
+      } else if (mode === "doorErase") {
+        if (Math.hypot(x1 - x0, y1 - y0) < 40) {
+          let best = -1, bestD = 50;
+          (doors || []).forEach((d, i) => {
+            const mx = (d.x1 + d.x2) / 2, my = (d.y1 + d.y2) / 2;
+            const dist = Math.hypot(mx - x0, my - y0);
+            if (dist < bestD) { bestD = dist; best = i; }
+          });
+          if (best >= 0) {
+            doors.splice(best, 1);
+            persistVision();
+            renderDoors();
+            scheduleSync();
+          }
+        }
+
       } else {
         const rect = {
           x: Math.min(x0, x1), y: Math.min(y0, y1),
