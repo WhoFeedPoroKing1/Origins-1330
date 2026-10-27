@@ -2433,3 +2433,29 @@ body:not(.is-dm) #musicYoutubeUrl {
 .sfx-row.has-file .yt-sfx-input {
   border-color: rgba(90, 200, 140, 0.45);
 }
+
+/* Token boyut tutamacı (sağ üst — Roll20 tarzı) */
+.tok-resize {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: #d4af37;
+  border: 2px solid #0a0a0e;
+  cursor: nwse-resize;
+  z-index: 30;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  pointer-events: auto;
+}
+.tok-resize:hover {
+  background: #f0d060;
+  transform: scale(1.15);
+}
+.tok.has-img {
+  color: transparent !important;
+}
+.tok.has-img .tok-initial {
+  display: none !important;
+}

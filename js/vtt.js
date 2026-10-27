@@ -1086,6 +1086,8 @@ function initVTT() {
       // world coords: cell center
       el.style.left = t.cx * CELL + CELL / 2 + "px";
       el.style.top = t.cy * CELL + CELL / 2 + "px";
+      const sz = Math.min(3, Math.max(0.4, +(t.size != null ? t.size : 1) || 1));
+      el.style.setProperty("--tok-scale", String(sz));
       el.dataset.id = t.id;
 
       // Faction borders override title colors (dost mavi, düşman kırmızı, nötr beyaz)
@@ -1105,12 +1107,16 @@ function initVTT() {
 
       const ini = (t.name || "?").slice(0, 2).toUpperCase();
       const low = (t.hp / (t.hpMax || 1)) <= 0.3;
-      if (t.portrait) {
+      const hasPort = !!(t.portrait && String(t.portrait).indexOf("data:") === 0);
+      if (hasPort) {
         el.classList.add("has-img");
-        el.style.backgroundImage = `url(${t.portrait})`;
+        el.style.backgroundImage = "url(" + t.portrait + ")";
+        el.style.backgroundSize = "cover";
+        el.style.backgroundPosition = "center";
       }
+      const canResize = selectedId === t.id && (canControlToken(t) || isDm());
       el.innerHTML =
-        `<span class="tok-initial">${esc(ini)}</span>` +
+        (hasPort ? "" : `<span class="tok-initial">${esc(ini)}</span>`) +
         ((t.hp ?? 1) <= 0 ? (t.deathSaves && t.deathSaves.dead
           ? `<span class="tok-downed" title="Ölü">☠</span>`
           : t.deathSaves && t.deathSaves.stable
@@ -1132,9 +1138,34 @@ function initVTT() {
           : "") +
         (t.owner ? `<span class="tok-owner">${esc(t.owner)}</span>` : "") +
         (t.form === "ally" ? `<span class="tok-owner" style="top:auto;bottom:-28px;background:#e05a5a;color:#fff">Yoldaş</span>` : "") +
-        `<span class="tok-hp ${low ? "low" : ""}">${t.hp}/${t.hpMax}</span>`;
+        `<span class="tok-hp ${low ? "low" : ""}">${t.hp}/${t.hpMax}</span>` +
+        (canResize ? `<span class="tok-resize" title="Sürükle: boyut"></span>` : "");
 
       tokLayer.appendChild(el);
+
+      // Köşeden boyut (Roll20 tarzı)
+      const resizeEl = el.querySelector(".tok-resize");
+      if (resizeEl) {
+        resizeEl.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!canControlToken(t) && !isDm()) return;
+          selectedId = t.id;
+          const rect = board.getBoundingClientRect();
+          const cx = rect.left + (t.cx * CELL + CELL / 2) * scale + panX;
+          const cy = rect.top + (t.cy * CELL + CELL / 2) * scale + panY;
+          drag = {
+            type: "resize",
+            id: t.id,
+            startSize: Math.min(3, Math.max(0.4, +(t.size != null ? t.size : 1) || 1)),
+            cx: cx,
+            cy: cy,
+            ox: e.clientX,
+            oy: e.clientY,
+          };
+          try { resizeEl.setPointerCapture(e.pointerId); } catch (_) {}
+        });
+      }
 
       el.querySelectorAll("[data-st-id]").forEach((stEl) => {
         stEl.addEventListener("pointerdown", (e) => {
@@ -1262,9 +1293,11 @@ function initVTT() {
     if (!tokenId || !dataUrl) return;
     if (String(dataUrl).indexOf("data:image") !== 0) return;
     const tk0 = tokens.find((x) => x.id === tokenId);
+    const formKey = (tk0 && tk0.form === "ally") ? "ally" : "char";
     const meta = {
       refId: tk0 ? (tk0.refId || "") : "",
       name: tk0 ? (tk0.name || "") : "",
+      form: formKey,
     };
     compressPortrait(dataUrl, 80, 0.45).then((small) => {
       if (!small || small.length < 50) {
@@ -1278,13 +1311,14 @@ function initVTT() {
         try { renderTokens(); } catch (_) {}
       }
       try {
+        const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
         if (meta.refId) {
-          const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
-          cache[String(meta.refId)] = small;
-          // isimle de
-          if (meta.name) cache["name:" + meta.name] = small;
-          localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
+          delete cache[String(meta.refId)];
+          delete cache["name:" + (meta.name || "")];
+          cache[String(meta.refId) + ":" + formKey] = small;
         }
+        cache["id:" + tokenId] = small;
+        localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
       } catch (_) {}
       const trySend = (attempt) => {
         try {
@@ -1482,6 +1516,20 @@ function initVTT() {
       applyMapXF();
       return;
     }
+    if (drag.type === "resize") {
+      const tk = tokens.find((x) => x.id === drag.id);
+      if (!tk) return;
+      const dist = Math.hypot(e.clientX - drag.cx, e.clientY - drag.cy) / Math.max(0.001, scale);
+      // ~25px yarıçap = 1.0 boyut
+      let ns = dist / 28;
+      ns = Math.min(3, Math.max(0.4, ns));
+      // 0.05 adım
+      ns = Math.round(ns * 20) / 20;
+      tk.size = ns;
+      const el = tokLayer.querySelector('.tok[data-id="' + tk.id + '"]');
+      if (el) el.style.setProperty("--tok-scale", String(ns));
+      return;
+    }
     if (drag.type === "token") {
       const tk = tokens.find((x) => x.id === drag.id);
       if (!tk) return;
@@ -1581,6 +1629,12 @@ function initVTT() {
       if (drag.type === "map" && typeof persistScenes === "function") {
         persistScenes();
         scheduleSync();
+      }
+      if (drag.type === "resize") {
+        try { saveTokens(); } catch (_) {}
+        try { scheduleSync(); } catch (_) {}
+        try { renderTokens(); } catch (_) {}
+        try { renderInspector(); } catch (_) {}
       }
     }
     if (drag.type === "ruler") {
@@ -5208,6 +5262,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       damage: tk.damage,
       statuses: tk.statuses,
       portrait: "",
+      size: tk.size != null ? tk.size : 1,
       hasCreature: tk.hasCreature,
       creatureData: null,
       hidden: !!tk.hidden,
@@ -5277,12 +5332,15 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
           if ((!merged.portrait || String(merged.portrait).length < 40) && pend[merged.id]) {
             merged.portrait = pend[merged.id];
           }
-          if ((!merged.portrait || String(merged.portrait).length < 40) && merged.refId && pend["ref:" + merged.refId]) {
-            merged.portrait = pend["ref:" + merged.refId];
+          const fk = (merged.form === "ally") ? "ally" : "char";
+          if ((!merged.portrait || String(merged.portrait).length < 40) && merged.refId) {
+            const k = "ref:" + merged.refId + ":" + fk;
+            if (pend[k]) merged.portrait = pend[k];
           }
           if ((!merged.portrait || String(merged.portrait).length < 40) && merged.refId) {
             const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
-            if (cache[String(merged.refId)]) merged.portrait = cache[String(merged.refId)];
+            if (cache[String(merged.refId) + ":" + fk]) merged.portrait = cache[String(merged.refId) + ":" + fk];
+            else if (cache["id:" + merged.id]) merged.portrait = cache["id:" + merged.id];
           }
         } catch (_) {}
         if (old && !merged.atkSfx && old.atkSfx) {
@@ -5354,8 +5412,11 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       let filled = false;
       tokens.forEach((tk) => {
         if (!tk || (tk.portrait && String(tk.portrait).indexOf("data:image") === 0)) return;
-        const cand = pend[tk.id] || pend["ref:" + tk.refId] || pend["name:" + tk.name]
-          || cache[String(tk.refId)] || cache["name:" + tk.name];
+        const fk = (tk.form === "ally") ? "ally" : "char";
+        const cand = pend[tk.id]
+          || pend["ref:" + tk.refId + ":" + fk]
+          || cache["id:" + tk.id]
+          || cache[String(tk.refId) + ":" + fk];
         if (cand && String(cand).indexOf("data:image") === 0) {
           tk.portrait = cand;
           filled = true;
@@ -5440,27 +5501,35 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       onPortrait: (tokenId, dataUrl, meta) => {
         if (!dataUrl || String(dataUrl).indexOf("data:image") !== 0) return;
         meta = meta || {};
+        const formKey = meta.form === "ally" ? "ally" : "char";
         window.__pendingPortraits = window.__pendingPortraits || Object.create(null);
         if (tokenId) window.__pendingPortraits[String(tokenId)] = dataUrl;
-        if (meta.refId) window.__pendingPortraits["ref:" + meta.refId] = dataUrl;
-        if (meta.name) window.__pendingPortraits["name:" + meta.name] = dataUrl;
+        if (meta.refId) window.__pendingPortraits["ref:" + meta.refId + ":" + formKey] = dataUrl;
         try {
           const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
-          if (meta.refId) cache[String(meta.refId)] = dataUrl;
-          if (meta.name) cache["name:" + meta.name] = dataUrl;
+          if (meta.refId) {
+            delete cache[String(meta.refId)];
+            delete cache["name:" + (meta.name || "")];
+            cache[String(meta.refId) + ":" + formKey] = dataUrl;
+          }
+          if (tokenId) cache["id:" + tokenId] = dataUrl;
           localStorage.setItem("origins_portrait_cache_v1", JSON.stringify(cache));
         } catch (_) {}
-        // Tüm eşleşen tokenlara uygula (id / refId / isim)
         let applied = 0;
         tokens.forEach((tk) => {
           if (!tk) return;
-          const match =
-            (tokenId && String(tk.id) === String(tokenId)) ||
-            (meta.refId && String(tk.refId) === String(meta.refId)) ||
-            (meta.name && tk.name === meta.name);
-          if (!match) return;
-          tk.portrait = dataUrl;
-          applied++;
+          if (tokenId && String(tk.id) === String(tokenId)) {
+            tk.portrait = dataUrl;
+            applied++;
+            return;
+          }
+          if (meta.refId && String(tk.refId) === String(meta.refId)) {
+            const tkForm = tk.form === "ally" ? "ally" : "char";
+            if (tkForm === formKey) {
+              tk.portrait = dataUrl;
+              applied++;
+            }
+          }
         });
         if (!applied) return;
         try { saveTokens(); } catch (_) {}
