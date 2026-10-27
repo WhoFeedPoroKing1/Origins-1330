@@ -30,6 +30,10 @@
         <button type="button" class="tbtn active" data-tool="select">Seç / Taşı</button>
         <button type="button" class="tbtn" data-tool="token">Token koy</button>
         <button type="button" class="tbtn" data-tool="ruler">Cetvel</button>
+        <button type="button" class="tbtn" data-tool="aoe-circle" title="Daire alan">◯ Alan</button>
+        <button type="button" class="tbtn" data-tool="aoe-square" title="Kare / çerçeve alan">▢ Kare</button>
+        <button type="button" class="tbtn" data-tool="aoe-cone" title="Huni / koni">▽ Huni</button>
+        <button type="button" class="tbtn" data-tool="aoe-line" title="Çizgi alan">─ Çizgi</button>
         <button type="button" class="tbtn" data-tool="pan">Kaydır</button>
       </div>
       <div class="sep"></div>
@@ -52,6 +56,9 @@
         <button type="button" class="tbtn" id="openLibBtn">Kütüphane</button>
         <span class="room-sep"></span>
         <input type="text" id="displayName" class="tbtn" placeholder="Adın" maxlength="24" style="width:6.5rem" title="Masada görünen adın" />
+        <input type="text" id="roomCodeInput" class="tbtn" placeholder="ODA KODU" maxlength="8" style="width:5.5rem;text-transform:uppercase;letter-spacing:0.06em" title="Oda kodu — aynı kod = aynı masa" />
+        <button type="button" class="tbtn" id="roomJoinBtn" title="Odaya katıl">Katıl</button>
+        <button type="button" class="tbtn" id="roomNewBtn" title="Yeni rastgele oda">Yeni oda</button>
         <button type="button" class="tbtn" id="roomReconnect" title="Yeniden bağlan">↻</button>
         <span id="roomStatus" style="font-size:0.72rem;color:#d4af37;margin-left:0.35rem">Bağlanıyor…</span>
         <button type="button" class="tbtn" id="ambientBtn" title="Ambiyans">♫</button>
@@ -61,7 +68,7 @@
         <button type="button" class="tbtn dm-only" id="btnBloodMoon" style="display:none" title="Kanlı Ay — kırmızı atmosfer">🔴 Kanlı Ay</button>
         <button type="button" class="tbtn" id="exportSession" title="Oturum özeti">Export</button>
         <button type="button" class="tbtn" id="shortcutHelp" title="Kısayollar">⌨</button>
-        <button type="button" class="tbtn" id="clearRuler">Cetvel sil</button>
+        <button type="button" class="tbtn" id="clearRuler">Cetvel / alan sil</button>
       </div>
       <div class="sep"></div>
       <div class="grp">
@@ -175,6 +182,11 @@
 
         <h3>Oda · çevrimiçi <span id="presenceCount" style="color:#d4af37;font-weight:600"></span></h3>
         <div id="presenceList" class="presence-list"></div>
+        <h3>Savaş logu</h3>
+        <div class="combat-log-panel">
+          <div id="combatLog" class="combat-log"></div>
+          <button type="button" class="tbtn" id="combatLogClear" style="width:100%;margin-top:0.3rem;font-size:0.65rem">Logu temizle</button>
+        </div>
         <h3>Sohbet &amp; log</h3>
         <div class="chat-panel">
           <div id="chatLog" class="chat-log"></div>
@@ -318,6 +330,7 @@
         </label>
         <h3>Seçili token</h3>
         <p style="font-size:0.62rem;color:#6b665c;margin:0 0 0.5rem">Üstten <strong>Kütüphane</strong> → sürükle-bırak.</p>
+        <div id="shortSheet" class="short-sheet" style="margin-bottom:0.45rem"></div>
         <div id="tokenInspector" style="margin-bottom:0.5rem"></div>
 
         <h3>Can (HP)</h3>

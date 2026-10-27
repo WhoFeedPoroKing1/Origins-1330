@@ -4,8 +4,42 @@
  * Broker: genel ücretsiz WSS (EMQX / HiveMQ yedek)
  */
 (function (global) {
-  const TOPIC = "origins/1330/live/table/v3";
-  const PRESENCE_TOPIC = "origins/1330/live/presence/v3";
+  const ROOM_KEY = "origins_room_code_v1";
+  let roomCode = "PUBLIC";
+
+  function normalizeRoomCode(c) {
+    const s = String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+    return s || "PUBLIC";
+  }
+  function loadRoomCode() {
+    try {
+      return normalizeRoomCode(
+        localStorage.getItem(ROOM_KEY) ||
+        sessionStorage.getItem(ROOM_KEY) ||
+        "PUBLIC"
+      );
+    } catch (_) {
+      return "PUBLIC";
+    }
+  }
+  function saveRoomCode(c) {
+    roomCode = normalizeRoomCode(c);
+    try { localStorage.setItem(ROOM_KEY, roomCode); } catch (_) {}
+    try { sessionStorage.setItem(ROOM_KEY, roomCode); } catch (_) {}
+    return roomCode;
+  }
+  roomCode = loadRoomCode();
+
+  function tableTopic() { return "origins/1330/r/" + roomCode + "/t"; }
+  function presenceTopic() { return "origins/1330/r/" + roomCode + "/p"; }
+
+  function randomRoomCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let out = "";
+    for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
   const BROKERS = [
     "wss://broker.emqx.io:8084/mqtt",
     "wss://test.mosquitto.org:8081/mqtt",
@@ -155,7 +189,7 @@
     const CHUNK = 12000;
     const total = Math.max(1, Math.ceil(str.length / CHUNK));
     // begin
-    enqueuePublish(TOPIC, {
+    enqueuePublish(tableTopic(), {
       type: "map_chunk",
       phase: "begin",
       id: id,
@@ -168,7 +202,7 @@
       t: Date.now(),
     }, 20);
     for (let i = 0; i < total; i++) {
-      enqueuePublish(TOPIC, {
+      enqueuePublish(tableTopic(), {
         type: "map_chunk",
         phase: "data",
         id: id,
@@ -179,7 +213,7 @@
         t: Date.now(),
       }, 40);
     }
-    enqueuePublish(TOPIC, {
+    enqueuePublish(tableTopic(), {
       type: "map_chunk",
       phase: "end",
       id: id,
@@ -261,7 +295,7 @@
       return false;
     }
     // publish doğrudan (kuyruk gecikmesin)
-    const ok = publish(TOPIC, {
+    const ok = publish(tableTopic(), {
       type: "portrait",
       tokenId: String(tokenId),
       refId: meta.refId ? String(meta.refId) : "",
@@ -275,7 +309,7 @@
 
   function requestAllPortraits() {
     if (!connected) return;
-    publish(TOPIC, {
+    publish(tableTopic(), {
       type: "request_portraits",
       from: ensureClientId(),
       t: Date.now(),
@@ -403,7 +437,9 @@
       onState({ mapBg: "", _forceClearMap: true }, { from: msg.from, type: "map_clear" });
       return;
     }
-    if (msg.type === "state" && onState) onState(msg.state, msg);
+    if (msg.type === "state" && onState) {
+      onState(msg.state, Object.assign({}, msg, { dmAuth: msg.dm === true }));
+    }
     if (msg.type === "token_move" && onTokenMove) onTokenMove(msg);
     if (msg.type === "fx" && onFx) onFx(msg);
     if (msg.type === "dice" && onDice) onDice(msg);
@@ -416,12 +452,19 @@
     if (msg.type === "request_state" && typeof global.__originsGetState === "function") {
       setTimeout(() => {
         try {
+          let isDmUser = false;
+          try {
+            if (typeof global.__originsIsDm === "function") isDmUser = !!global.__originsIsDm();
+            else if (typeof sessionStorage !== "undefined") isDmUser = sessionStorage.getItem("origins_dm_v2") === "1";
+          } catch (_) {}
+          if (!isDmUser) return; // sadece DM state cevaplar
           const full = global.__originsGetState();
           const st = leanState(full);
-          publish(TOPIC, {
+          publish(tableTopic(), {
             type: "state",
             state: st,
             from: ensureClientId(),
+            dm: true,
             t: Date.now(),
             seq: nextSeq(),
           });
@@ -447,17 +490,23 @@
   }
 
   function sendPresence() {
+    let isDmUser = false;
+    try {
+      if (typeof global.__originsIsDm === "function") isDmUser = !!global.__originsIsDm();
+      else if (typeof sessionStorage !== "undefined") isDmUser = sessionStorage.getItem("origins_dm_v2") === "1";
+    } catch (_) {}
     const body = {
       type: "presence",
       id: ensureClientId(),
       name: displayName || "Oyuncu",
       host: false,
+      dm: isDmUser,
       page: currentPage(),
       t: Date.now(),
     };
     upsertPresence(body);
-    publish(PRESENCE_TOPIC, body);
-    publish(TOPIC, body);
+    publish(presenceTopic(), body);
+    publish(tableTopic(), body);
   }
 
   function startPresencePulse() {
@@ -529,26 +578,31 @@
       failCount = 0;
       setStatus("Çevrimiçi");
       try {
-        client.subscribe([TOPIC, PRESENCE_TOPIC], { qos: 0 });
+        client.subscribe([tableTopic(), presenceTopic()], { qos: 0 });
       } catch (_) {}
       startPresencePulse();
       sendPresence();
       // masa state iste
-      publish(TOPIC, {
+      publish(tableTopic(), {
         type: "request_state",
         from: ensureClientId(),
         t: Date.now(),
       });
-      setTimeout(() => {
-        try { requestAllPortraits(); } catch (_) {}
-      }, 1200);
-      setTimeout(() => {
-        try {
-          if (typeof global.__originsPushAllPortraits === "function") {
-            global.__originsPushAllPortraits();
-          }
-        } catch (_) {}
-      }, 2000);
+      // Portre senkronu: iste + gönder (tekrarlı)
+      [800, 2000, 4500].forEach((ms) => {
+        setTimeout(() => {
+          try { requestAllPortraits(); } catch (_) {}
+        }, ms);
+      });
+      [1500, 3500, 7000].forEach((ms) => {
+        setTimeout(() => {
+          try {
+            if (typeof global.__originsPushAllPortraits === "function") {
+              global.__originsPushAllPortraits();
+            }
+          } catch (_) {}
+        }, ms);
+      });
     });
 
     client.on("message", (topic, buf) => {
@@ -613,16 +667,23 @@
   }
 
   function pushState(state) {
-    publish(TOPIC, {
+    let isDmUser = false;
+    try {
+      if (typeof global.__originsIsDm === "function") isDmUser = !!global.__originsIsDm();
+      else if (typeof sessionStorage !== "undefined") isDmUser = sessionStorage.getItem("origins_dm_v2") === "1";
+    } catch (_) {}
+    publish(tableTopic(), {
       type: "state",
       state: leanState(state),
       from: ensureClientId(),
+      dm: !!isDmUser,
       t: Date.now(),
       seq: nextSeq(),
     });
+    return true;
   }
   function pushTokenMove(id, cx, cy) {
-    publish(TOPIC, {
+    publish(tableTopic(), {
       type: "token_move",
       id: id,
       cx: cx,
@@ -633,7 +694,7 @@
     });
   }
   function pushFx(payload) {
-    publish(TOPIC, Object.assign({ type: "fx", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload));
+    publish(tableTopic(), Object.assign({ type: "fx", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload));
   }
   function pushDice(payload) {
     // zar stili büyük olabilir — sadeleştir
@@ -646,25 +707,25 @@
         anim: p.diceStyle.anim,
       };
     }
-    publish(TOPIC, Object.assign({ type: "dice", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, p));
+    publish(tableTopic(), Object.assign({ type: "dice", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, p));
   }
   function pushChat(entry) {
-    publish(TOPIC, Object.assign({ type: "chat", from: ensureClientId(), t: (entry && entry.t) || Date.now() }, entry));
+    publish(tableTopic(), Object.assign({ type: "chat", from: ensureClientId(), t: (entry && entry.t) || Date.now() }, entry));
   }
   function pushRuler(payload) {
-    publish(TOPIC, Object.assign({ type: "ruler", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload));
+    publish(tableTopic(), Object.assign({ type: "ruler", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload));
   }
   function pushMusic(payload) {
     const p = Object.assign({ type: "music", from: ensureClientId(), t: Date.now(), seq: nextSeq() }, payload);
     // chunk data büyükse kuyruğa
     if (p.action === "play_chunk" || p.action === "play_begin" || p.action === "play_end") {
-      enqueuePublish(TOPIC, p, p.action === "play_chunk" ? 40 : 25);
+      enqueuePublish(tableTopic(), p, p.action === "play_chunk" ? 40 : 25);
       return;
     }
     if (p.dataUrl && String(p.dataUrl).length > 4000) {
       delete p.dataUrl;
     }
-    enqueuePublish(TOPIC, p, 20);
+    enqueuePublish(tableTopic(), p, 20);
   }
 
 
@@ -683,7 +744,7 @@
     pushTokenPortrait: pushTokenPortrait,
     requestAllPortraits: requestAllPortraits,
     pushMapClear: function () {
-      publish(TOPIC, { type: "map_clear", from: ensureClientId(), t: Date.now() });
+      publish(tableTopic(), { type: "map_clear", from: ensureClientId(), t: Date.now() });
     },
     pushChat: pushChat,
     pushTokenMove: pushTokenMove,
@@ -715,12 +776,26 @@
       setStatus("Çevrimdışı");
     },
     setWantAlive: function (v) { wantAlive = !!v; },
-    roomId: function () { return "LIVE"; },
+    roomId: function () { return roomCode; },
     clientId: function () { return ensureClientId(); },
     getPresence: function () { return Object.values(presenceMap); },
-    loadSavedRoom: function () { return "LIVE"; },
-    fillRoomInput: function () {},
-    persistRoom: function () {},
+    loadSavedRoom: function () { return loadRoomCode(); },
+    fillRoomInput: function (el) {
+      if (el) el.value = roomCode;
+    },
+    persistRoom: function (c) { return saveRoomCode(c); },
+    joinRoom: function (code) {
+      const next = saveRoomCode(code || randomRoomCode());
+      presenceMap = Object.create(null);
+      hardClose();
+      wantAlive = true;
+      autoConnect(true);
+      return next;
+    },
+    newRoom: function () {
+      return this.joinRoom(randomRoomCode());
+    },
+    randomRoomCode: randomRoomCode,
   };
 
   document.addEventListener("visibilitychange", function () {

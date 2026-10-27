@@ -152,6 +152,7 @@ function initVTT() {
 
   function chatAdd(text, cls, opts) {
     opts = opts || {};
+    if (opts.dmOnly && typeof isDm === "function" && !isDm()) return;
     const el = document.getElementById("chatLog");
     if (!el) return;
     const line = document.createElement("div");
@@ -165,8 +166,70 @@ function initVTT() {
       save("origins_chat_v1", log.slice(0, 100));
     } catch (_) {}
     if (!opts.skipSync) {
-      try { window.OriginsSync && OriginsSync.pushChat({ text, cls: cls || "", t: time }); } catch (_) {}
+      try {
+        window.OriginsSync && OriginsSync.pushChat({
+          text, cls: cls || "", t: time, dmOnly: !!opts.dmOnly,
+        });
+      } catch (_) {}
     }
+    if (opts.combat || cls === "fx" || cls === "dice") {
+      try { combatLogAdd(text, cls || "combat"); } catch (_) {}
+    }
+  }
+
+  function combatLogAdd(text, kind) {
+    const el = document.getElementById("combatLog");
+    if (!el) return;
+    const time = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+    const line = document.createElement("div");
+    line.className = "clog-line clog-" + (kind || "combat");
+    line.innerHTML = "<span class=\"clog-t\">" + time + "</span> " + text;
+    el.prepend(line);
+    while (el.children.length > 80) el.removeChild(el.lastChild);
+    try {
+      const log = load("origins_combat_log_v1", []);
+      log.unshift({ t: time, text: text, kind: kind || "combat" });
+      save("origins_combat_log_v1", log.slice(0, 80));
+    } catch (_) {}
+  }
+
+  function renderShortSheet(tok) {
+    const box = document.getElementById("shortSheet");
+    if (!box) return;
+    if (!tok) {
+      box.innerHTML = "<div class=\"ss-empty\">Token seç — kısa sheet</div>";
+      return;
+    }
+    const stList = typeof normalizeStatuses === "function" ? normalizeStatuses(tok.statuses) : (tok.statuses || []);
+    const spd = typeof getTokenSpeed === "function" ? getTokenSpeed(tok) : (tok.speed || 0);
+    const hp = tok.hp ?? 0;
+    const hpMax = tok.hpMax || 1;
+    const pct = Math.max(0, Math.min(100, Math.round((hp / hpMax) * 100)));
+    const ac = tok.ac ?? 10;
+    const fac = tok.faction || (tok.enemy ? "enemy" : "");
+    const facLabel = fac === "enemy" || tok.enemy ? "Düşman" : fac === "ally" ? "Dost" : fac === "neutral" ? "Nötr" : "PC";
+    const port = tok.portrait && String(tok.portrait).indexOf("data:") === 0
+      ? "<img class=\"ss-port\" src=\"" + tok.portrait + "\" alt=\"\" />"
+      : "<div class=\"ss-port ss-ph\">" + esc((tok.name || "?").slice(0, 2).toUpperCase()) + "</div>";
+    const stHtml = stList.length
+      ? "<div class=\"ss-st\">" + stList.map(function (s) {
+          const d = STATUS_DEFS.find(function (x) { return x.id === s.id; });
+          return "<span title=\"" + esc(d ? d.label : s.id) + "\">" + (d ? d.icon : "•") + (s.turns != null ? s.turns : "") + "</span>";
+        }).join("") + "</div>"
+      : "";
+    box.innerHTML =
+      "<div class=\"ss-card\">" + port +
+      "<div class=\"ss-body\">" +
+      "<div class=\"ss-name\">" + esc(tok.name || "?") + "</div>" +
+      "<div class=\"ss-sub\">" + esc(tok.title || "") + (tok.form === "ally" ? " · Yoldaş" : "") + " · " + facLabel + "</div>" +
+      "<div class=\"ss-hpbar\"><span style=\"width:" + pct + "%\"></span></div>" +
+      "<div class=\"ss-stats\">" +
+      "<span>HP " + hp + "/" + hpMax + "</span>" +
+      (typeof isDm === "function" && isDm() ? "<span>AC " + ac + "</span>" : "") +
+      "<span>Hız " + spd + "</span>" +
+      "<span>" + esc(tok.damage || "—") + "</span>" +
+      "</div>" + stHtml +
+      "</div></div>";
   }
 
   function tokenDistFt(a, b) {
@@ -790,21 +853,25 @@ function initVTT() {
   function setTool(t) {
     const prevTool = tool;
     tool = t;
-    if (prevTool === "ruler" && t !== "ruler") { try { clearRuler(); } catch (_) {} }
+    const isAoe = String(t || "").indexOf("aoe-") === 0;
+    if ((prevTool === "ruler" || String(prevTool).indexOf("aoe-") === 0) && t !== prevTool) {
+      try { clearRuler(); } catch (_) {}
+      try { if (typeof clearAoe === "function") clearAoe(); } catch (_) {}
+    }
     document.querySelectorAll("[data-tool]").forEach((b) => {
       b.classList.toggle("active", b.dataset.tool === t);
     });
-    board.classList.remove("cursor-pan", "cursor-ruler", "cursor-token", "cursor-attack", "dragging");
+    board.classList.remove("cursor-pan", "cursor-ruler", "cursor-token", "cursor-attack", "cursor-aoe", "dragging");
     if (t === "pan") board.classList.add("cursor-pan");
     if (t === "ruler") board.classList.add("cursor-ruler");
     if (t === "token") board.classList.add("cursor-token");
     if (t === "attack") board.classList.add("cursor-attack");
-    // Cetvel / kaydır: tokenlara hiç dokunma
+    if (isAoe) board.classList.add("cursor-aoe");
     if (tokLayer) {
-      tokLayer.style.pointerEvents = (t === "ruler" || t === "pan") ? "none" : "auto";
+      tokLayer.style.pointerEvents = (t === "ruler" || t === "pan" || isAoe) ? "none" : "auto";
     }
     const fl = document.getElementById("vttFx");
-    if (fl) fl.style.pointerEvents = (t === "ruler" || t === "pan") ? "none" : "auto";
+    if (fl) fl.style.pointerEvents = (t === "ruler" || t === "pan" || isAoe) ? "none" : "auto";
   }
   document.querySelectorAll("[data-tool]").forEach((b) => {
     b.addEventListener("click", () => setTool(b.dataset.tool));
@@ -1159,20 +1226,31 @@ function initVTT() {
       }
       el.dataset.id = t.id;
 
-      // Faction borders override title colors (dost mavi, düşman kırmızı, nötr beyaz)
-      if (faction === "enemy" || t.enemy) {
+      // Renk: özel token rengi > faction > title
+      const customCol = t.tokenColor || t.borderColor || "";
+      if (customCol && /^#|[a-z]/i.test(customCol) && faction !== "enemy") {
+        el.style.borderColor = customCol;
+        el.style.color = customCol;
+      } else if (faction === "enemy" || t.enemy) {
         el.style.borderColor = "#e05a5a";
         el.style.color = "#e05a5a";
       } else if (faction === "ally") {
-        el.style.borderColor = "#5b8def";
-        el.style.color = "#5b8def";
+        el.style.borderColor = customCol || "#5b8def";
+        el.style.color = customCol || "#5b8def";
       } else if (faction === "neutral") {
-        el.style.borderColor = "#f0f0f0";
-        el.style.color = "#f0f0f0";
+        el.style.borderColor = customCol || "#f0f0f0";
+        el.style.color = customCol || "#f0f0f0";
       } else if (TITLE_HEX[t.title]) {
-        el.style.borderColor = TITLE_HEX[t.title];
-        el.style.color = TITLE_HEX[t.title];
+        el.style.borderColor = customCol || TITLE_HEX[t.title];
+        el.style.color = customCol || TITLE_HEX[t.title];
+      } else if (customCol) {
+        el.style.borderColor = customCol;
+        el.style.color = customCol;
       }
+      // Şekil
+      const shape = t.tokenShape || "circle";
+      el.classList.remove("shape-circle", "shape-square", "shape-rounded", "shape-diamond", "shape-hex");
+      el.classList.add("shape-" + (["circle","square","rounded","diamond","hex"].includes(shape) ? shape : "circle"));
 
       const ini = (t.name || "?").slice(0, 2).toUpperCase();
       const low = (t.hp / (t.hpMax || 1)) <= 0.3;
@@ -1508,6 +1586,12 @@ function initVTT() {
       speed: (kind === "p" && data.human && data.human.spd != null)
         ? (+data.human.spd || 0)
         : (data.spd != null ? (+data.spd || 0) : (data.speed != null ? (+data.speed || 0) : 0)),
+      tokenColor: (kind === "p" && data.human && data.human.tokenColor)
+        ? data.human.tokenColor
+        : (data.tokenColor || ""),
+      tokenShape: (kind === "p" && data.human && data.human.tokenShape)
+        ? data.human.tokenShape
+        : (data.tokenShape || "circle"),
       atkSfx: "",
       atkSfxName: data.atkSfxName || "",
       atkYt: data.atkYt || "",
@@ -1538,7 +1622,7 @@ function initVTT() {
     const w = worldFromClient(e.clientX, e.clientY);
 
     // Map move: DM only + unlocked
-    if (isDm() && !mapLocked && e.button === 0 && tool !== "token" && tool !== "ruler") {
+    if (isDm() && !mapLocked && e.button === 0 && tool !== "token" && tool !== "ruler" && String(tool).indexOf("aoe-") !== 0) {
       drag = { type: "map", ox: e.clientX, oy: e.clientY, sox: mapOX, soy: mapOY };
       board.classList.add("dragging");
       e.preventDefault();
@@ -1557,6 +1641,14 @@ function initVTT() {
       const cy = Math.floor(w.y / CELL);
       rulerA = { x: cx * CELL + CELL / 2, y: cy * CELL + CELL / 2, cx, cy };
       drag = { type: "ruler" };
+      e.preventDefault();
+      return;
+    }
+    if (String(tool).indexOf("aoe-") === 0) {
+      const cx = Math.floor(w.x / CELL);
+      const cy = Math.floor(w.y / CELL);
+      const shape = String(tool).replace("aoe-", "") || "circle";
+      drag = { type: "aoe", aoe: { shape: shape, ox: cx, oy: cy, ex: cx, ey: cy } };
       e.preventDefault();
       return;
     }
@@ -1719,13 +1811,31 @@ function initVTT() {
       }
     }
     if (drag.type === "ruler") {
-      // Bırakınca cetvel otomatik silinsin (takılı kalmasın)
       localRuler = null;
       rulerA = null;
       document.querySelectorAll(".ruler-label").forEach((n) => {
         if (n.id === "rulerTag_local" || n.id === "rulerTag_preview" || n.id === "rulerTag") n.remove();
       });
       try { publishRuler(null); } catch (_) {}
+      try { redrawOverlays(); } catch (_) {}
+    }
+    if (drag.type === "aoe" && drag.aoe) {
+      localAoe = {
+        shape: drag.aoe.shape,
+        ox: drag.aoe.ox, oy: drag.aoe.oy,
+        ex: drag.aoe.ex, ey: drag.aoe.ey,
+      };
+      try {
+        if (window.OriginsSync && OriginsSync.pushRuler) {
+          OriginsSync.pushRuler({
+            aoe: true,
+            shape: localAoe.shape,
+            ox: localAoe.ox, oy: localAoe.oy,
+            ex: localAoe.ex, ey: localAoe.ey,
+            name: (document.getElementById("displayName")?.value || "").trim() || "Oyuncu",
+          });
+        }
+      } catch (_) {}
       try { redrawOverlays(); } catch (_) {}
     }
     drag = null;
@@ -1787,6 +1897,104 @@ function initVTT() {
     tag.style.top = by - 12 + "px";
   }
 
+
+  // ── AoE şablonları (Roll20 tarzı) ──
+  let localAoe = null;
+  let remoteAoes = Object.create(null);
+
+  function clearAoe() {
+    localAoe = null;
+    document.querySelectorAll(".aoe-label").forEach((n) => n.remove());
+    try { redrawOverlays(); } catch (_) {}
+    try {
+      if (window.OriginsSync && OriginsSync.pushRuler) {
+        OriginsSync.pushRuler({ aoe: true, clear: true });
+      }
+    } catch (_) {}
+  }
+
+  function aoeFeet(ox, oy, ex, ey, shape) {
+    const dx = ex - ox, dy = ey - oy;
+    if (shape === "square") return Math.round(Math.max(Math.abs(dx), Math.abs(dy)) * FEET);
+    return Math.round(Math.hypot(dx, dy) * FEET);
+  }
+
+  function drawAoeTemplate(aoe, color, label, tagId) {
+    if (!aoe || !dctx) return;
+    const ox = aoe.ox * CELL + CELL / 2;
+    const oy = aoe.oy * CELL + CELL / 2;
+    const ex = aoe.ex * CELL + CELL / 2;
+    const ey = aoe.ey * CELL + CELL / 2;
+    const sx = (x) => x * scale + panX;
+    const sy = (y) => y * scale + panY;
+    dctx.save();
+    dctx.fillStyle = "rgba(212, 175, 55, 0.15)";
+    if (color.indexOf("90,180,255") >= 0) dctx.fillStyle = "rgba(90, 180, 255, 0.15)";
+    dctx.strokeStyle = color;
+    dctx.lineWidth = 2;
+    dctx.setLineDash([6, 4]);
+    const shape = aoe.shape || "circle";
+    if (shape === "circle") {
+      const r = Math.hypot(ex - ox, ey - oy);
+      dctx.beginPath();
+      dctx.arc(sx(ox), sy(oy), Math.max(1, r * scale), 0, Math.PI * 2);
+      dctx.fill();
+      dctx.stroke();
+    } else if (shape === "square") {
+      const half = Math.max(Math.abs(ex - ox), Math.abs(ey - oy));
+      const x0 = ox - half, y0 = oy - half, side = half * 2;
+      dctx.beginPath();
+      dctx.rect(sx(x0), sy(y0), side * scale, side * scale);
+      dctx.fill();
+      dctx.stroke();
+    } else if (shape === "cone") {
+      const ang = Math.atan2(ey - oy, ex - ox);
+      const len = Math.hypot(ex - ox, ey - oy) || 1;
+      const halfA = (53 * Math.PI) / 180 / 2;
+      const x1 = ox + Math.cos(ang - halfA) * len;
+      const y1 = oy + Math.sin(ang - halfA) * len;
+      const x2 = ox + Math.cos(ang + halfA) * len;
+      const y2 = oy + Math.sin(ang + halfA) * len;
+      dctx.beginPath();
+      dctx.moveTo(sx(ox), sy(oy));
+      dctx.lineTo(sx(x1), sy(y1));
+      dctx.lineTo(sx(x2), sy(y2));
+      dctx.closePath();
+      dctx.fill();
+      dctx.stroke();
+    } else {
+      const ang = Math.atan2(ey - oy, ex - ox);
+      const len = Math.hypot(ex - ox, ey - oy) || 1;
+      const hw = CELL / 2;
+      const px = Math.cos(ang + Math.PI / 2) * hw;
+      const py = Math.sin(ang + Math.PI / 2) * hw;
+      const tipx = ox + Math.cos(ang) * len;
+      const tipy = oy + Math.sin(ang) * len;
+      dctx.beginPath();
+      dctx.moveTo(sx(ox + px), sy(oy + py));
+      dctx.lineTo(sx(tipx + px), sy(tipy + py));
+      dctx.lineTo(sx(tipx - px), sy(tipy - py));
+      dctx.lineTo(sx(ox - px), sy(oy - py));
+      dctx.closePath();
+      dctx.fill();
+      dctx.stroke();
+    }
+    dctx.setLineDash([]);
+    dctx.restore();
+    const feet = aoeFeet(aoe.ox, aoe.oy, aoe.ex, aoe.ey, shape);
+    const shapeLabel = { circle: "Daire", square: "Kare", cone: "Huni", line: "Çizgi" }[shape] || shape;
+    let tag = document.getElementById(tagId);
+    if (!tag) {
+      tag = document.createElement("div");
+      tag.id = tagId;
+      tag.className = "aoe-label";
+      board.appendChild(tag);
+    }
+    tag.textContent = (label ? label + " · " : "") + shapeLabel + " · " + feet + " ft";
+    tag.style.left = sx(ex) + 8 + "px";
+    tag.style.top = sy(ey) - 10 + "px";
+  }
+
   function redrawOverlays() {
     const w = board.clientWidth || 0;
     const h = board.clientHeight || 0;
@@ -1807,6 +2015,17 @@ function initVTT() {
       const ecy = Math.floor(drag.rulerEnd.y / CELL);
       drawOneRuler(rulerA.cx, rulerA.cy, ecx, ecy, "rgba(212,175,55,0.95)", "", "rulerTag_preview");
     }
+    // AoE
+    try {
+      Object.keys(remoteAoes || {}).forEach((id) => {
+        const a = remoteAoes[id];
+        if (a) drawAoeTemplate(a, "rgba(90,180,255,0.95)", a.name || "?", "aoeTag_" + id);
+      });
+      if (localAoe) drawAoeTemplate(localAoe, "rgba(212,175,55,0.95)", "Sen", "aoeTag_local");
+      if (drag && drag.type === "aoe" && drag.aoe) {
+        drawAoeTemplate(drag.aoe, "rgba(212,175,55,0.95)", "", "aoeTag_preview");
+      }
+    } catch (_) {}
     // attack line on top
     try { drawAttackLine(true); } catch (_) {}
   }
@@ -1830,7 +2049,10 @@ function initVTT() {
     deleteTokenById(tok.id, { silent: true });
   });
 
-document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
+document.getElementById("clearRuler")?.addEventListener("click", () => {
+    try { clearRuler(); } catch (_) {}
+    try { clearAoe(); } catch (_) {}
+  });
   document.getElementById("clearTokens")?.addEventListener("click", () => {
     if (isDm()) {
       if (!confirm("Tüm tokenlar silinsin mi?")) return;
@@ -1873,6 +2095,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
     const box = document.getElementById("tokenInspector");
     if (!box) return;
     const t = tokens.find((x) => x.id === selectedId);
+    try { renderShortSheet(t || null); } catch (_) {}
     if (!t) {
       box.innerHTML = '<p style="font-size:0.72rem;color:#6b665c;margin:0">Token seç veya yerleştir</p>';
       return;
@@ -1919,6 +2142,15 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       <div class="status-grid" id="tokStatusGrid"></div>
       <label style="font-size:0.62rem;color:#6b665c">Hız (inisiyatif +)</label>
       <input type="number" id="tokSpeed" min="0" max="20" value="${getTokenSpeed(t)}" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem" />
+      <label style="font-size:0.62rem;color:#6b665c">Çerçeve rengi</label>
+      <input type="color" id="tokColor" value="${esc(t.tokenColor || "#d4af37")}" style="width:100%;height:2rem;margin-bottom:0.35rem;border:1px solid #252532;background:#050507;padding:0.15rem" />
+      <label style="font-size:0.62rem;color:#6b665c">Şekil</label>
+      <select id="tokShape" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem">
+        ${["circle","square","rounded","diamond","hex"].map((s) => {
+          const labels = {circle:"Yuvarlak",square:"Kare",rounded:"Yuvarlatılmış",diamond:"Elmas",hex:"Altıgen"};
+          return `<option value="${s}" ${(t.tokenShape||"circle")===s?"selected":""}>${labels[s]}</option>`;
+        }).join("")}
+      </select>
       <div style="font-size:0.65rem;color:#6b665c;margin:0.4rem 0 0.15rem">Token boyutu (ızgara)</div>
       <select id="tokSize" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem">
         ${TOKEN_SIZE_STEPS.map((s) => `<option value="${s}" ${normalizeTokenSize(t.size) === s ? "selected" : ""}>${TOKEN_SIZE_LABELS[s] || s}</option>`).join("")}
@@ -2062,6 +2294,20 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       saveTokens();
       scheduleSync();
     });
+    document.getElementById("tokColor")?.addEventListener("input", (e) => {
+      if (!allowEdit) return;
+      t.tokenColor = e.target.value || "";
+      saveTokens();
+      renderTokens();
+      scheduleSync();
+    });
+    document.getElementById("tokShape")?.addEventListener("change", (e) => {
+      if (!allowEdit) return;
+      t.tokenShape = e.target.value || "circle";
+      saveTokens();
+      renderTokens();
+      scheduleSync();
+    });
     document.getElementById("tokSize")?.addEventListener("change", (e) => {
       if (!allowEdit) return;
       t.size = normalizeTokenSize(e.target.value);
@@ -2154,6 +2400,7 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
   function isDm() {
     return sessionStorage.getItem(S.dm) === "1";
   }
+  try { window.__originsIsDm = isDm; } catch (_) {}
 
   function syncDmBodyClass() {
     try {
@@ -2482,10 +2729,12 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
         if (r.hidden && !isDm()) return "";
         const hid = r.hidden ? " 👁" : "";
         const spdTip = (r.speed ? (" · Hız +" + r.speed) : "") + (r.d20 != null ? (" · d20 " + r.d20) : "");
+        const tokRow = tokens.find((x) => x.id === r.id);
+        const canRm = isDm() || (tokRow && typeof canControlToken === "function" && canControlToken(tokRow));
         return `<div class="init-row ${r.enemy ? "en" : ""} ${i === turnIdx ? "cur" : ""} ${r.hidden ? "hidden-init" : ""}" data-init-idx="${i}" data-init-id="${esc(r.id)}" draggable="${isDm() ? "true" : "false"}">
             <span class="init-sc" title="${esc(String(r.score) + spdTip)}">${r.score}</span>
             <span class="init-name">${i === turnIdx ? "▶ " : ""}${esc(r.name)}${hid}${i === turnIdx ? " · SIRA" : ""}</span>
-            ${isDm() ? `<button type="button" class="init-rm" data-rm-id="${esc(r.id)}" title="Çıkar">×</button>` : ""}
+            ${canRm ? `<button type="button" class="init-rm" data-rm-id="${esc(r.id)}" title="İnisiyatiften çıkar">Çıkar</button>` : ""}
           </div>`;
       })
       .join("");
@@ -2493,8 +2742,13 @@ document.getElementById("clearRuler")?.addEventListener("click", clearRuler);
       btn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (!isDm()) return;
-        removeFromInitiative(btn.dataset.rmId);
+        const id = btn.dataset.rmId;
+        const tokRow = tokens.find((x) => x.id === id);
+        if (!isDm() && !(tokRow && canControlToken(tokRow))) {
+          alert("Sadece kendi tokenını çıkarabilirsin.");
+          return;
+        }
+        removeFromInitiative(id);
       });
     });
 el.querySelectorAll(".init-row").forEach((row) => {
@@ -5345,6 +5599,22 @@ el.querySelectorAll(".init-row").forEach((row) => {
       el.appendChild(line);
     });
   })();
+  (function loadCombatLog() {
+    const el = document.getElementById("combatLog");
+    if (!el) return;
+    const log = load("origins_combat_log_v1", []);
+    log.slice(0, 40).forEach((x) => {
+      const line = document.createElement("div");
+      line.className = "clog-line clog-" + (x.kind || "combat");
+      line.innerHTML = "<span class=\"clog-t\">" + esc(x.t || "") + "</span> " + (x.text || "");
+      el.appendChild(line);
+    });
+  })();
+  document.getElementById("combatLogClear")?.addEventListener("click", () => {
+    const el = document.getElementById("combatLog");
+    if (el) el.innerHTML = "";
+    try { save("origins_combat_log_v1", []); } catch (_) {}
+  });
   document.getElementById("chatSend")?.addEventListener("click", sendChat);
   document.getElementById("chatInput")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendChat();
@@ -5484,6 +5754,43 @@ el.querySelectorAll(".init-row").forEach((row) => {
     const myId = window.OriginsSync ? OriginsSync.clientId() : "";
     // Ignore our own state echo (host relay / self broadcast)
     if (meta && meta.from && myId && meta.from === myId) return;
+
+    const dmAuth = !!(meta && (meta.dmAuth === true || meta.dm === true));
+    // Oyuncu state'i: sadece token birleştir (map/fog/ini ezmesin)
+    if (!dmAuth) {
+      if (Array.isArray(st.tokens)) {
+        const byId = Object.create(null);
+        tokens.forEach((tk) => { byId[tk.id] = tk; });
+        st.tokens.forEach((incoming) => {
+          if (!incoming || !incoming.id) return;
+          const old = byId[incoming.id];
+          if (old) {
+            // pozisyon: remote güncelle (kendi sürüklemen hariç)
+            if (!(localDragging && localDragging.has(incoming.id))) {
+              old.cx = incoming.cx;
+              old.cy = incoming.cy;
+            }
+            if (incoming.hp != null) old.hp = incoming.hp;
+            if (incoming.hpMax != null) old.hpMax = incoming.hpMax;
+            if (incoming.statuses) old.statuses = incoming.statuses;
+            if (incoming.size != null) old.size = incoming.size;
+            if (incoming.tokenColor) old.tokenColor = incoming.tokenColor;
+            if (incoming.tokenShape) old.tokenShape = incoming.tokenShape;
+            if (incoming.speed != null) old.speed = incoming.speed;
+            if (incoming.hidden != null) old.hidden = incoming.hidden;
+            if (incoming.portrait && String(incoming.portrait).length > 40) old.portrait = incoming.portrait;
+          } else {
+            // yeni token (oyuncu koydu)
+            tokens.push(Object.assign({}, incoming));
+          }
+        });
+        try { saveTokens(); } catch (_) {}
+        try { renderTokens(); } catch (_) {}
+        try { renderHP(); } catch (_) {}
+        try { renderInspector(); } catch (_) {}
+      }
+      return;
+    }
 
     if (Array.isArray(st.tokens)) {
       const localPos = {};
@@ -5751,6 +6058,20 @@ el.querySelectorAll(".init-row").forEach((row) => {
         if (!msg) return;
         const myId = OriginsSync.clientId();
         if (msg.from && msg.from === myId) return;
+        if (msg.aoe) {
+          if (msg.clear) {
+            delete remoteAoes[msg.from];
+            document.getElementById("aoeTag_" + msg.from)?.remove();
+          } else if (msg.from != null) {
+            remoteAoes[msg.from] = {
+              shape: msg.shape || "circle",
+              ox: msg.ox, oy: msg.oy, ex: msg.ex, ey: msg.ey,
+              name: msg.name || "?",
+            };
+          }
+          try { redrawOverlays(); } catch (_) {}
+          return;
+        }
         if (msg.clear) {
           delete remoteRulers[msg.from];
           document.getElementById("rulerTag_" + msg.from)?.remove();
@@ -5842,6 +6163,35 @@ el.querySelectorAll(".init-row").forEach((row) => {
   }
   wireOnlineName();
 
+  (function wireRoomUI() {
+    const inp = document.getElementById("roomCodeInput");
+    try {
+      if (window.OriginsSync && OriginsSync.fillRoomInput) OriginsSync.fillRoomInput(inp);
+      else if (inp && window.OriginsSync && OriginsSync.roomId) inp.value = OriginsSync.roomId();
+    } catch (_) {}
+    document.getElementById("roomJoinBtn")?.addEventListener("click", () => {
+      const code = (inp && inp.value) || "";
+      if (!window.OriginsSync || !OriginsSync.joinRoom) return alert("Bağlantı yok");
+      const r = OriginsSync.joinRoom(code);
+      if (inp) inp.value = r;
+      chatAdd("Oda: <strong>" + esc(r) + "</strong> — bağlanılıyor…", "sys");
+      setTimeout(() => {
+        try {
+          if (window.OriginsSync && OriginsSync.requestAllPortraits) OriginsSync.requestAllPortraits();
+          if (typeof pushAllTokenPortraits === "function") pushAllTokenPortraits();
+        } catch (_) {}
+      }, 2000);
+    });
+    document.getElementById("roomNewBtn")?.addEventListener("click", () => {
+      if (!window.OriginsSync || !OriginsSync.newRoom) return;
+      const r = OriginsSync.newRoom();
+      if (inp) inp.value = r;
+      chatAdd("Yeni oda: <strong>" + esc(r) + "</strong> — kodu arkadaşlarına ver", "sys");
+    });
+    inp?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("roomJoinBtn")?.click();
+    });
+  })();
   document.getElementById("roomReconnect")?.addEventListener("click", () => {
     const name = typeof currentDisplayName === "function" ? currentDisplayName() : (document.getElementById("displayName")?.value || "Oyuncu");
     OriginsSync?.setDisplayName(name);
@@ -7590,6 +7940,44 @@ el.querySelectorAll(".init-row").forEach((row) => {
   renderHP();
   renderInit();
   renderVfx();
+
+  // Yan panel: başlıklara tıklayınca aç/kapa
+  (function initSideSections() {
+    function build(side) {
+      if (!side || side.dataset.sectionsBuilt) return;
+      side.dataset.sectionsBuilt = "1";
+      const nodes = Array.from(side.childNodes);
+      const h3s = Array.from(side.querySelectorAll(":scope > h3"));
+      if (!h3s.length) return;
+      h3s.forEach((h3) => {
+        const wrap = document.createElement("div");
+        wrap.className = "side-section open";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "side-section-toggle";
+        const title = (h3.textContent || "").trim();
+        btn.innerHTML = "<span class=\"side-section-title\">" + title + "</span><span class=\"side-chev\">▼</span>";
+        const body = document.createElement("div");
+        body.className = "side-section-body";
+        let n = h3.nextSibling;
+        while (n && !(n.nodeType === 1 && n.tagName === "H3")) {
+          const next = n.nextSibling;
+          if (n.nodeType === 1 || (n.nodeType === 3 && n.textContent.trim())) {
+            body.appendChild(n);
+          }
+          n = next;
+        }
+        h3.parentNode.insertBefore(wrap, h3);
+        wrap.appendChild(btn);
+        wrap.appendChild(body);
+        h3.remove();
+        btn.addEventListener("click", () => {
+          wrap.classList.toggle("open");
+        });
+      });
+    }
+    document.querySelectorAll(".vtt-side").forEach(build);
+  })();
 
   window.addEventListener("resize", () => {
     sizeCanvases();

@@ -99,6 +99,8 @@ function initCharacters() {
         mind: val("hMind", "3"),
         ctrl: val("hCtrl", "3"),
         portrait: hPortrait || "",
+        tokenColor: val("hTokColor", "#d4af37") || "#d4af37",
+        tokenShape: val("hTokShape", "circle") || "circle",
       },
       // creature form
       creature: {
@@ -128,6 +130,8 @@ function initCharacters() {
       portrait: hPortrait || vPortrait || "",
       magicName: (val("hMagic", "") || "").trim(),
       type: val("hType", ""),
+      tokenColor: val("hTokColor", "#d4af37") || "#d4af37",
+      tokenShape: val("hTokShape", "circle") || "circle",
       diceStyle: {
         color: val("dColor", "#d4af37") || "#d4af37",
         color2: val("dColor2", "#1a1520") || "#1a1520",
@@ -192,6 +196,8 @@ function initCharacters() {
     setVal("hSpd", hu.spd || 3);
     setVal("hEnd", hu.end || 3);
     setVal("hMind", hu.mind || 3);
+    setVal("hTokColor", hu.tokenColor || c.tokenColor || "#d4af37");
+    if (document.getElementById("hTokShape")) document.getElementById("hTokShape").value = hu.tokenShape || c.tokenShape || "circle";
     setVal("hCtrl", hu.ctrl || 3);
     setVal("hFx", hu.fx || "");
     setPortrait("hPortrait", hu.portrait, (d) => { hPortrait = d; });
@@ -234,6 +240,8 @@ function initCharacters() {
     setPortrait("hPortrait", "", () => {});
     setPortrait("vPortrait", "", () => {});
     ["hPow", "hSpd", "hEnd", "hMind", "hCtrl"].forEach((id) => setVal(id, 3));
+    setVal("hTokColor", "#d4af37");
+    if (document.getElementById("hTokShape")) document.getElementById("hTokShape").value = "circle";
     setVal("hHp", 10);
     setVal("hHpMax", 10);
     setVal("vPow", 4);
