@@ -57,7 +57,49 @@
       width: 44px; height: 44px; border-radius: 6px; object-fit: cover;
       border: 1px solid var(--border);
     }
-  </style>
+  
+    .inv-list { display: flex; flex-direction: column; gap: 0.35rem; }
+    .inv-row {
+      display: grid;
+      grid-template-columns: 1.4fr 4rem 1fr auto auto;
+      gap: 0.35rem;
+      align-items: center;
+    }
+    .inv-row-full {
+      grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+      gap: 0.3rem;
+      padding: 0.45rem;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border, #252532);
+      border-radius: 6px;
+      margin-bottom: 0.35rem;
+    }
+    .inv-row-full input, .inv-row-full select {
+      font-size: 0.72rem !important;
+      min-width: 0;
+    }
+    .inv-row input[type="text"],
+    .inv-row input[type="number"] {
+      width: 100%;
+      background: var(--bg-2, #0c0c12);
+      border: 1px solid var(--border, #252532);
+      color: var(--text, #f2efe6);
+      padding: 0.35rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+    .inv-row label.inv-eq {
+      display: flex; align-items: center; gap: 0.2rem;
+      font-size: 0.65rem; color: var(--text-2, #6b665c); white-space: nowrap;
+    }
+    .inv-row .inv-del {
+      background: transparent; border: 1px solid rgba(224,90,90,0.4);
+      color: #e05a5a; border-radius: 4px; cursor: pointer; padding: 0.25rem 0.4rem;
+    }
+    @media (max-width: 700px) {
+      .inv-row { grid-template-columns: 1fr 1fr; }
+    }
+</style>
 </head>
 <body>
   <header class="header">
@@ -207,7 +249,15 @@
 
         <!-- Zar görünümü -->
         <div class="char-shared" id="diceStyleBox" style="margin-top:0.25rem">
-          <h2 style="font-family:var(--font-d);font-size:1rem;color:var(--gold);letter-spacing:0.05em;margin-bottom:0.85rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border)">
+          
+          <h2 style="font-size:0.95rem;margin:1.5rem 0 0.75rem;color:var(--gold)">Envanter</h2>
+          <p style="font-size:0.72rem;color:var(--muted,#6b665c);margin:0 0 0.5rem;line-height:1.4">Slot: Çanta / Sağ el / Sol el / Zırh. Silah: hasar zarı, tür (kesici/saplama/ezici), +hasar. Zırh: tür, azaltma, AC+, hız cezası (AC düşürür). Tür çarpanları masada DM ayarlayabilir.</p>
+          <div id="invList" class="inv-list"></div>
+          <div style="display:flex;gap:0.35rem;margin-top:0.4rem;flex-wrap:wrap">
+            <button type="button" class="btn btn-ghost btn-sm" id="invAdd">+ Eşya ekle</button>
+          </div>
+
+<h2 style="font-family:var(--font-d);font-size:1rem;color:var(--gold);letter-spacing:0.05em;margin-bottom:0.85rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border)">
             Zar görünümü
             <span style="font-size:0.58rem;padding:0.18rem 0.45rem;border-radius:3px;background:var(--gold-muted);color:var(--gold);letter-spacing:0.06em;margin-left:0.4rem">Masada senin zarın</span>
           </h2>
