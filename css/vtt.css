@@ -2648,3 +2648,30 @@ body:not(.is-dm) #musicYoutubeUrl {
   white-space: nowrap;
 }
 #roomCodeInput { font-family: ui-monospace, monospace; }
+
+.clog-f.active { border-color: #d4af37 !important; color: #d4af37 !important; }
+.clog-line.hidden-filter { display: none !important; }
+.presence-afk { opacity: 0.45; }
+.presence-afk::after { content: " · AFK"; color: #6b665c; font-size: 0.65rem; }
+.init-ready-mark { color: #3d9e6f; font-size: 0.7rem; margin-left: 0.25rem; }
+.ss-energy {
+  margin-top: 0.25rem;
+  height: 5px;
+  background: #1a1a22;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ss-energy > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #5b8def, #a78bfa);
+}
+.tok-aura-ring {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid rgba(212,175,55,0.35);
+  pointer-events: none;
+  box-shadow: 0 0 12px rgba(212,175,55,0.2);
+}

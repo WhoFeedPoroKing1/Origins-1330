@@ -300,6 +300,7 @@
       tokenId: String(tokenId),
       refId: meta.refId ? String(meta.refId) : "",
       name: meta.name ? String(meta.name) : "",
+      form: meta.form === "ally" ? "ally" : "char",
       data: str,
       from: ensureClientId(),
       t: Date.now(),
@@ -340,7 +341,13 @@
     delete _portParts[msg.id];
     if (!dataUrl || !tokenId) return;
     if (onPortrait) {
-      try { onPortrait(tokenId, dataUrl, { refId: (b.refId || msg.refId || "") }); } catch (e) { console.warn("portrait", e); }
+      try {
+        onPortrait(tokenId, dataUrl, {
+          refId: (b.refId || msg.refId || ""),
+          name: (b.name || msg.name || ""),
+          form: (b.form || msg.form) === "ally" ? "ally" : "char",
+        });
+      } catch (e) { console.warn("portrait", e); }
     }
   }
 
@@ -414,6 +421,7 @@
           onPortrait(msg.tokenId || "", msg.data, {
             refId: msg.refId || "",
             name: msg.name || "",
+            form: msg.form === "ally" ? "ally" : "char",
           });
         } catch (e) { console.warn(e); }
       }

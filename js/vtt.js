@@ -1569,6 +1569,10 @@ function initVTT() {
       const me = loadRoster().find((c) => c.id === activePlayerId);
       if (me && kind === "p" && String(data.id) === String(me.id)) ownerName = me.name;
     }
+    // Aynı karakterin ikinci "char" tokenını engelle (yoldaş hariç)
+    if (kind === "p" && data.id) {
+      tokens = tokens.filter((x) => !(x && x.form !== "ally" && String(x.refId) === String(data.id)));
+    }
     const newId = uid();
     tokens.push({
       id: newId,
@@ -1597,6 +1601,10 @@ function initVTT() {
       speed: (kind === "p" && data.human && data.human.spd != null)
         ? (+data.human.spd || 0)
         : (data.spd != null ? (+data.spd || 0) : (data.speed != null ? (+data.speed || 0) : 0)),
+      energy: (kind === "p" && data.human && data.human.ctrl != null)
+        ? (+data.human.ctrl || 0)
+        : (data.ctrl != null ? (+data.ctrl || 0) : 0),
+      energyMax: 5,
       tokenColor: (kind === "p" && data.human && data.human.tokenColor)
         ? data.human.tokenColor
         : (data.tokenColor || ""),
@@ -2137,6 +2145,120 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
   });
 
   // ── Inspector ──
+
+  /** Zırh × silah türü çarpanları (DM ayarlanabilir) */
+  const DEFAULT_ARMOR_MATRIX = {
+    light: { slashing: 1.2, piercing: 1.2, bludgeoning: 0.85 },
+    chain: { slashing: 0.8, piercing: 0.9, bludgeoning: 1.3 },
+    plate: { slashing: 0.85, piercing: 1.25, bludgeoning: 0.7 },
+  };
+  function loadArmorMatrix() {
+    try {
+      const raw = localStorage.getItem("origins_armor_matrix_v1");
+      if (raw) return Object.assign({}, DEFAULT_ARMOR_MATRIX, JSON.parse(raw));
+    } catch (_) {}
+    return JSON.parse(JSON.stringify(DEFAULT_ARMOR_MATRIX));
+  }
+  function saveArmorMatrix(m) {
+    try { localStorage.setItem("origins_armor_matrix_v1", JSON.stringify(m)); } catch (_) {}
+  }
+
+  function findInvItem(tok, slot) {
+    const items = getCharInventory(tok) || [];
+    return items.find((x) => x && x.slot === slot) || null;
+  }
+
+  function getEquippedWeapon(tok) {
+    const main = findInvItem(tok, "mainhand");
+    const off = findInvItem(tok, "offhand");
+    if (main && main.kind === "weapon") return main;
+    if (off && off.kind === "weapon") return off;
+    return null;
+  }
+
+  function getEquippedArmor(tok) {
+    const a = findInvItem(tok, "armor");
+    return a && a.kind === "armor" ? a : null;
+  }
+
+  /** Token için etkili hasar formülü ve silah türü */
+  function resolveAttackDamage(tok) {
+    const w = getEquippedWeapon(tok);
+    if (w) {
+      let f = (w.damage || "1d6").trim();
+      const bon = +w.damageBonus || 0;
+      if (bon) f += (bon > 0 ? "+" : "") + bon;
+      return {
+        formula: f,
+        weaponType: w.weaponType || "slashing",
+        name: w.name || "Silah",
+      };
+    }
+    return {
+      formula: tok.damage || "1d6",
+      weaponType: tok.weaponType || "slashing",
+      name: "Doğal",
+    };
+  }
+
+  /** Zırh azaltma + tür çarpanı sonrası hasar */
+  function applyArmorToDamage(rawDmg, weaponType, targetTok) {
+    const armor = getEquippedArmor(targetTok);
+    if (!armor) return { final: Math.max(0, Math.floor(rawDmg)), mult: 1, reduced: 0, armorName: "" };
+    const matrix = loadArmorMatrix();
+    const at = armor.armorType || "light";
+    const row = matrix[at] || {};
+    const wt = weaponType || "slashing";
+    const mult = row[wt] != null ? +row[wt] : 1;
+    let after = Math.floor(rawDmg * mult);
+    const reduce = Math.max(0, +armor.armorValue || 0);
+    const final = Math.max(0, after - reduce);
+    return {
+      final: final,
+      mult: mult,
+      reduced: Math.max(0, after - final),
+      afterMult: after,
+      armorName: armor.name || at,
+      armorType: at,
+    };
+  }
+
+  /** Etkili AC: taban + zırh AC − hız cezası */
+  function resolveTokenAC(tok) {
+    let ac = tok.ac != null ? +tok.ac : 10;
+    const armor = getEquippedArmor(tok);
+    if (armor) {
+      ac += +armor.acBonus || 0;
+      ac -= +armor.speedPenalty || 0;
+    }
+    return Math.max(1, ac);
+  }
+
+  function getCharInventory(tok) {
+    if (!tok) return [];
+    try {
+      const roster = loadRoster();
+      const ch = roster.find((c) => String(c.id) === String(tok.refId))
+        || roster.find((c) => c.name === tok.name || c.name === tok.owner);
+      if (ch && Array.isArray(ch.inventory)) return ch.inventory;
+    } catch (_) {}
+    if (Array.isArray(tok.inventory)) return tok.inventory;
+    return [];
+  }
+
+  function setCharInventory(tok, items) {
+    if (!tok) return;
+    tok.inventory = items;
+    try {
+      const list = loadRoster();
+      const i = list.findIndex((c) => String(c.id) === String(tok.refId));
+      if (i >= 0) {
+        list[i].inventory = items;
+        saveRoster(list);
+      }
+    } catch (_) {}
+  }
+
   function renderInspector() {
     try { updateActionBar(); } catch (_) {}
 
@@ -2203,6 +2325,30 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
       <select id="tokSize" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem">
         ${TOKEN_SIZE_STEPS.map((s) => `<option value="${s}" ${normalizeTokenSize(t.size) === s ? "selected" : ""}>${TOKEN_SIZE_LABELS[s] || s}</option>`).join("")}
       </select>
+      <div style="font-size:0.65rem;color:#d4af37;margin:0.5rem 0 0.25rem">Envanter — slot ile tak / çıkar</div><p style="font-size:0.6rem;color:#6b665c;margin:0 0 0.3rem;line-height:1.3">Eşyaları Karakter sayfasında oluştur. Buradan sağ/sol el / zırh / çanta seç.</p>
+      <div id="tokInvList" style="font-size:0.72rem;max-height:160px;overflow-y:auto;margin-bottom:0.3rem"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-bottom:0.25rem">
+        <input type="text" id="tokInvName" placeholder="Eşya adı" maxlength="40" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
+        <select id="tokInvSlot" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+          <option value="bag">Çanta</option>
+          <option value="mainhand">Sağ el</option>
+          <option value="offhand">Sol el</option>
+          <option value="armor">Zırh</option>
+        </select>
+        <select id="tokInvKind" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+          <option value="gear">Eşya</option>
+          <option value="weapon">Silah</option>
+          <option value="armor">Zırh</option>
+        </select>
+        <input type="text" id="tokInvDmg" placeholder="Hasar 1d8" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
+        <select id="tokInvWtype" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+          <option value="slashing">Kesici</option>
+          <option value="piercing">Saplama</option>
+          <option value="bludgeoning">Ezici</option>
+        </select>
+        <input type="number" id="tokInvAval" placeholder="Zırh puan" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
+      </div>
+      <button type="button" class="tbtn" id="tokInvAdd" style="width:100%;font-size:0.68rem;margin-bottom:0.4rem">Eşya ekle</button>
       <button type="button" class="tbtn" id="tokDel" style="width:100%;margin-top:0.4rem;color:#e05a5a;border-color:rgba(224,90,90,0.4)">Token sil</button>
     </div>`;
     const allowEdit = canEditToken(t) || isDm();
@@ -2363,6 +2509,140 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
       renderTokens();
       scheduleSync();
     });
+
+    // Envanter: karakterden gelir; masada tak / çıkar
+    (function wireTokInv() {
+      const invBox = document.getElementById("tokInvList");
+      if (!invBox) return;
+      const canInv = isDm() || canEditToken(t) || canControlToken(t);
+
+      function setItemSlot(items, idx, newSlot) {
+        items = items.map((x, i) => Object.assign({}, x));
+        if (newSlot !== "bag") {
+          // Aynı slotta başka eşya varsa çantaya
+          items.forEach((x, i) => {
+            if (i !== idx && x.slot === newSlot) {
+              x.slot = "bag";
+              x.equipped = false;
+            }
+          });
+        }
+        if (items[idx]) {
+          items[idx].slot = newSlot;
+          items[idx].equipped = newSlot !== "bag";
+          // 2 el silah: offhand boşalt
+          if (newSlot === "mainhand" && items[idx].twoHand) {
+            items.forEach((x, i) => {
+              if (i !== idx && x.slot === "offhand") {
+                x.slot = "bag";
+                x.equipped = false;
+              }
+            });
+          }
+        }
+        return items;
+      }
+
+      function paint() {
+        const items = getCharInventory(t);
+        if (!items.length) {
+          invBox.innerHTML = '<div style="color:#6b665c;font-size:0.68rem">Envanter boş — Karakter sayfasından eşya ekle.</div>';
+          return;
+        }
+        const slotOpts = [
+          ["bag", "Çanta"],
+          ["mainhand", "Sağ el"],
+          ["offhand", "Sol el"],
+          ["armor", "Zırh"],
+        ];
+        invBox.innerHTML = items.map((it, idx) => {
+          const extra = it.kind === "weapon"
+            ? ((it.damage || "") + (it.weaponType ? " · " + it.weaponType : ""))
+            : (it.kind === "armor"
+              ? ("Z" + (it.armorValue || 0) + " AC+" + (it.acBonus || 0) + (it.speedPenalty ? " Hız-" + it.speedPenalty : ""))
+              : (it.notes || ""));
+          const opts = slotOpts.map(([v, lab]) =>
+            `<option value="${v}" ${(it.slot || "bag") === v ? "selected" : ""}>${lab}</option>`
+          ).join("");
+          return `<div style="display:grid;grid-template-columns:1fr auto;gap:0.25rem;align-items:center;margin-bottom:0.35rem;padding:0.3rem;background:#0a0a10;border:1px solid #252532;border-radius:5px">
+            <div style="min-width:0">
+              <div style="font-weight:600;font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.name)} <span style="color:#6b665c;font-weight:400">×${it.qty || 1}</span></div>
+              <div style="font-size:0.62rem;color:#6b665c">${esc(extra || (it.kind || "eşya"))}</div>
+            </div>
+            <div style="display:flex;gap:0.2rem;align-items:center">
+              <select data-inv-slot="${idx}" ${canInv ? "" : "disabled"} title="Tak / çıkar"
+                style="background:#050507;border:1px solid #252532;color:#eee;padding:0.2rem;border-radius:4px;font-size:0.65rem;max-width:5.5rem">
+                ${opts}
+              </select>
+              ${canInv ? `<button type="button" data-inv-del="${idx}" title="Sil" style="background:transparent;border:none;color:#e05a5a;cursor:pointer;font-size:0.9rem">×</button>` : ""}
+            </div>
+          </div>`;
+        }).join("");
+
+        invBox.querySelectorAll("[data-inv-slot]").forEach((sel) => {
+          sel.addEventListener("change", () => {
+            if (!canInv) return;
+            let items = getCharInventory(t);
+            items = setItemSlot(items, +sel.dataset.invSlot, sel.value);
+            setCharInventory(t, items);
+            // Token hasar / AC ipucu
+            try {
+              const w = resolveAttackDamage(t);
+              if (w && w.formula) t.damage = w.formula.split("+")[0].replace(/[+-]\d+$/, "") || t.damage;
+            } catch (_) {}
+            paint();
+            try { renderShortSheet(t); } catch (_) {}
+            try { scheduleSync(); } catch (_) {}
+          });
+        });
+        invBox.querySelectorAll("[data-inv-del]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            if (!canInv) return;
+            if (!confirm("Eşya silinsin mi?")) return;
+            const items = getCharInventory(t);
+            items.splice(+btn.dataset.invDel, 1);
+            setCharInventory(t, items);
+            paint();
+            try { renderShortSheet(t); } catch (_) {}
+          });
+        });
+      }
+      paint();
+
+      const addBtn = document.getElementById("tokInvAdd");
+      if (addBtn) {
+        addBtn.disabled = !canInv;
+        addBtn.addEventListener("click", () => {
+          if (!canInv) return;
+          const name = (document.getElementById("tokInvName")?.value || "").trim();
+          if (!name) return alert("Eşya adı yaz.");
+          const slot = document.getElementById("tokInvSlot")?.value || "bag";
+          const kind = document.getElementById("tokInvKind")?.value || "gear";
+          let items = getCharInventory(t);
+          if (slot !== "bag") {
+            items = items.map((x) => x.slot === slot ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
+          }
+          items.push({
+            id: "i_" + Math.random().toString(36).slice(2, 8),
+            name, qty: 1, notes: "", slot, kind,
+            damage: kind === "weapon" ? ((document.getElementById("tokInvDmg")?.value || "1d6").trim()) : "",
+            damageBonus: 0,
+            weaponType: kind === "weapon" ? (document.getElementById("tokInvWtype")?.value || "slashing") : "",
+            armorType: kind === "armor" ? "chain" : "",
+            armorValue: kind === "armor" ? (+document.getElementById("tokInvAval")?.value || 0) : 0,
+            acBonus: kind === "armor" ? 1 : 0,
+            speedPenalty: 0,
+            twoHand: false,
+            equipped: slot !== "bag",
+          });
+          setCharInventory(t, items);
+          if (document.getElementById("tokInvName")) document.getElementById("tokInvName").value = "";
+          paint();
+          try { renderShortSheet(t); } catch (_) {}
+        });
+      }
+    })();
+
     document.getElementById("tokDel")?.addEventListener("click", () => {
       if (!canDeleteToken(t)) {
         alert("Sadece kendi token’ını veya yoldaşını silebilirsin. Üstten “Ben” ile karakterini seç.");
@@ -4549,6 +4829,21 @@ el.querySelectorAll(".init-row").forEach((row) => {
 
   // Attack roll overlay
   function openAtkRoll() {
+    try {
+      const tgt = tokens.find((x) => x.id === atkToId);
+      const atk = tokens.find((x) => x.id === atkFromId);
+      if (tgt && document.getElementById("atkDC")) {
+        document.getElementById("atkDC").value = resolveTokenAC(tgt);
+      }
+      if (atk && document.getElementById("dmgFormulaInput")) {
+        /* later */
+      }
+      if (atk) {
+        const rd = resolveAttackDamage(atk);
+        window._atkWeaponType = rd.weaponType;
+      }
+    } catch (_) {}
+
     if (!atkFromId || !atkToId) {
       alert("Saldıran ve hedef seç.");
       return;
@@ -4649,7 +4944,7 @@ el.querySelectorAll(".init-row").forEach((row) => {
       if (!atkFromId || !atkToId) return alert("Saldıran ve hedef seç.");
       window._lastAtkOutcome = {
         outcome: "hit", targetId: atkToId, attackerId: atkFromId,
-        dmgFormula: "0", isCrit: false,
+        dmgFormula: "0", weaponType: (window._atkWeaponType || "slashing"), isCrit: false, weaponType: window._atkWeaponType || "slashing",
       };
       document.getElementById("atkRollOv")?.classList.remove("on");
       await applyHealFromIntent(window._lastAtkOutcome);
@@ -4660,7 +4955,7 @@ el.querySelectorAll(".init-row").forEach((row) => {
       if (!atkFromId || !atkToId) return alert("Saldıran ve hedef seç.");
       window._lastAtkOutcome = {
         outcome: "hit", targetId: atkToId, attackerId: atkFromId,
-        dmgFormula: document.getElementById("healFormula")?.value || "1d8", isCrit: false,
+        dmgFormula: document.getElementById("healFormula")?.value || "1d8", weaponType: (window._atkWeaponType || "slashing"), isCrit: false,
       };
       document.getElementById("atkRollOv")?.classList.remove("on");
       await applyHealFromIntent(window._lastAtkOutcome);
@@ -4715,7 +5010,11 @@ el.querySelectorAll(".init-row").forEach((row) => {
 
     const target = tokens.find((x) => x.id === atkToId);
     const targetAC = target?.ac ?? dc;
-    const dmgFormula = attacker?.damage || "1d6";
+    const _resDmg = typeof resolveAttackDamage === "function" && attacker
+      ? resolveAttackDamage(attacker)
+      : { formula: attacker?.damage || "1d6", weaponType: "slashing" };
+    const dmgFormula = _resDmg.formula;
+    window._atkWeaponType = _resDmg.weaponType;
 
     function rollFormula(formula) {
       const s = String(formula).replace(/\s/g, "");
@@ -4843,7 +5142,9 @@ el.querySelectorAll(".init-row").forEach((row) => {
     const attacker = tokens.find((x) => x.id === last.attackerId);
     const target = tokens.find((x) => x.id === last.targetId);
     if (!target) return;
-    const formula = last.dmgFormula || attacker?.damage || "1d6";
+    const rd = attacker && typeof resolveAttackDamage === "function" ? resolveAttackDamage(attacker) : null;
+    const formula = last.dmgFormula || (rd && rd.formula) || attacker?.damage || "1d6";
+    if (rd) window._atkWeaponType = rd.weaponType;
     const ov = document.getElementById("dmgRollOv");
     if (!ov) {
       // fallback immediate
@@ -4898,10 +5199,20 @@ el.querySelectorAll(".init-row").forEach((row) => {
     let dmgDone = raw + modN;
     if (!isHeal && last.isCrit) dmgDone *= 2;
 
+    let armorNote = "";
+    if (!isHeal) {
+      const wt = last.weaponType || window._atkWeaponType || "slashing";
+      const ar = applyArmorToDamage(dmgDone, wt, target);
+      if (ar.mult !== 1 || ar.reduced > 0) {
+        armorNote = " · " + (ar.armorName || "zırh") + " ×" + ar.mult + (ar.reduced ? " −" + ar.reduced : "");
+      }
+      dmgDone = ar.final;
+    }
+
     document.getElementById("dmgRollOv")?.classList.remove("on");
     const who = attacker?.name || (isHeal ? "Şifa" : "Hasar");
     const detail = faces.join("+") + (modN ? (modN > 0 ? "+" + modN : modN) : "") +
-      (!isHeal && last.isCrit ? " ×2" : "") + " = " + dmgDone + (isHeal ? " can" : " hasar");
+      (!isHeal && last.isCrit ? " ×2" : "") + armorNote + " = " + dmgDone + (isHeal ? " can" : " hasar");
     await showDiceOverlay(who, (isHeal ? "Şifa " : "Hasar ") + f + (!isHeal && last.isCrit ? " krit×2" : ""), faces.slice(0, 8), dmgDone, detail);
 
     if (isHeal) {
@@ -5797,6 +6108,30 @@ el.querySelectorAll(".init-row").forEach((row) => {
     };
   }
   window.__originsGetState = getSyncState;
+
+  function dedupeAllyTokens() {
+    const seen = Object.create(null);
+    const keep = [];
+    let removed = 0;
+    tokens.forEach((tk) => {
+      if (!tk) return;
+      if (tk.form === "ally" && tk.refId != null) {
+        const k = String(tk.refId);
+        if (seen[k]) {
+          removed++;
+          return; // ikinci yoldaşı at
+        }
+        seen[k] = true;
+      }
+      keep.push(tk);
+    });
+    if (removed) {
+      tokens = keep;
+      try { saveTokens(); } catch (_) {}
+    }
+    return removed;
+  }
+
   function applySyncState(st, meta) {
     if (!st) return;
     const myId = window.OriginsSync ? OriginsSync.clientId() : "";
@@ -6035,13 +6370,20 @@ el.querySelectorAll(".init-row").forEach((row) => {
         meta = meta || {};
         const formKey = meta.form === "ally" ? "ally" : "char";
         window.__pendingPortraits = window.__pendingPortraits || Object.create(null);
+        // Sadece id ve ref+form anahtarları (formsuz ref yasak)
         if (tokenId) window.__pendingPortraits[String(tokenId)] = dataUrl;
-        if (meta.refId) window.__pendingPortraits["ref:" + meta.refId + ":" + formKey] = dataUrl;
+        if (meta.refId) {
+          window.__pendingPortraits["ref:" + String(meta.refId) + ":" + formKey] = dataUrl;
+          // Eski hatalı anahtarları temizle
+          delete window.__pendingPortraits["ref:" + String(meta.refId)];
+          delete window.__pendingPortraits[String(meta.refId)];
+        }
         try {
           const cache = JSON.parse(localStorage.getItem("origins_portrait_cache_v1") || "{}");
           if (meta.refId) {
             delete cache[String(meta.refId)];
             delete cache["name:" + (meta.name || "")];
+            delete cache["ref:" + String(meta.refId)];
             cache[String(meta.refId) + ":" + formKey] = dataUrl;
           }
           if (tokenId) cache["id:" + tokenId] = dataUrl;
@@ -6050,17 +6392,17 @@ el.querySelectorAll(".init-row").forEach((row) => {
         let applied = 0;
         tokens.forEach((tk) => {
           if (!tk) return;
+          const tkForm = tk.form === "ally" ? "ally" : "char";
+          // 1) Tam token id eşleşmesi — her zaman
           if (tokenId && String(tk.id) === String(tokenId)) {
             tk.portrait = dataUrl;
             applied++;
             return;
           }
-          if (meta.refId && String(tk.refId) === String(meta.refId)) {
-            const tkForm = tk.form === "ally" ? "ally" : "char";
-            if (tkForm === formKey) {
-              tk.portrait = dataUrl;
-              applied++;
-            }
+          // 2) Aynı karakter + aynı form (char/ally) — asla çapraz
+          if (meta.refId && String(tk.refId) === String(meta.refId) && tkForm === formKey) {
+            tk.portrait = dataUrl;
+            applied++;
           }
         });
         if (!applied) return;
@@ -6217,6 +6559,16 @@ el.querySelectorAll(".init-row").forEach((row) => {
       if (window.OriginsSync && OriginsSync.fillRoomInput) OriginsSync.fillRoomInput(inp);
       else if (inp && window.OriginsSync && OriginsSync.roomId) inp.value = OriginsSync.roomId();
     } catch (_) {}
+    // URL ?oda=KOD
+    try {
+      const params = new URLSearchParams(location.search);
+      const oda = params.get("oda") || params.get("room");
+      if (oda && window.OriginsSync && OriginsSync.joinRoom) {
+        const r = OriginsSync.joinRoom(oda);
+        if (inp) inp.value = r;
+        chatAdd("Link ile odaya girildi: <strong>" + esc(r) + "</strong>", "sys");
+      }
+    } catch (_) {}
     document.getElementById("roomJoinBtn")?.addEventListener("click", () => {
       const code = (inp && inp.value) || "";
       if (!window.OriginsSync || !OriginsSync.joinRoom) return alert("Bağlantı yok");
@@ -6236,10 +6588,203 @@ el.querySelectorAll(".init-row").forEach((row) => {
       if (inp) inp.value = r;
       chatAdd("Yeni oda: <strong>" + esc(r) + "</strong> — kodu arkadaşlarına ver", "sys");
     });
+    document.getElementById("roomCopyLink")?.addEventListener("click", () => {
+      const code = (inp && inp.value) || (window.OriginsSync && OriginsSync.roomId && OriginsSync.roomId()) || "";
+      const url = location.origin + location.pathname + "?oda=" + encodeURIComponent(code);
+      try {
+        navigator.clipboard.writeText(url);
+        chatAdd("Oda linki kopyalandı: " + esc(url), "sys");
+      } catch (_) {
+        prompt("Linki kopyala:", url);
+      }
+    });
     inp?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") document.getElementById("roomJoinBtn")?.click();
     });
   })();
+
+  // ── Ek özellikler: filtre, not, journal, hızlı NPC, hazır, özet, enerji ──
+  (function extrasPanel() {
+    // Combat log filter
+    let clogFilter = "all";
+    document.querySelectorAll(".clog-f").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        clogFilter = btn.dataset.clog || "all";
+        document.querySelectorAll(".clog-f").forEach((b) => b.classList.toggle("active", b === btn));
+        document.querySelectorAll("#combatLog .clog-line").forEach((line) => {
+          const k = line.dataset.clog || "combat";
+          line.classList.toggle("hidden-filter", clogFilter !== "all" && k !== clogFilter);
+        });
+      });
+    });
+
+    // Session notes + DM secret + journal
+    const sn = document.getElementById("sessionNotes");
+    if (sn) {
+      try { sn.value = localStorage.getItem("origins_session_notes_v1") || ""; } catch (_) {}
+      sn.addEventListener("change", () => {
+        try { localStorage.setItem("origins_session_notes_v1", sn.value); } catch (_) {}
+      });
+    }
+    const dn = document.getElementById("dmSecretNotes");
+    if (dn) {
+      try { dn.value = localStorage.getItem("origins_dm_secret_notes_v1") || ""; } catch (_) {}
+      dn.addEventListener("change", () => {
+        try { localStorage.setItem("origins_dm_secret_notes_v1", dn.value); } catch (_) {}
+      });
+    }
+    const jn = document.getElementById("playerJournal");
+    if (jn) {
+      try { jn.value = localStorage.getItem("origins_player_journal_v1") || ""; } catch (_) {}
+      jn.addEventListener("change", () => {
+        try { localStorage.setItem("origins_player_journal_v1", jn.value); } catch (_) {}
+      });
+    }
+
+    // Ready button
+    document.getElementById("initReadyBtn")?.addEventListener("click", () => {
+      const name = typeof currentDisplayName === "function" ? currentDisplayName() : "Oyuncu";
+      chatAdd("<strong>" + esc(name) + "</strong> hazır ✓", "sys");
+      try {
+        if (window.OriginsSync && OriginsSync.pushChat) {
+          OriginsSync.pushChat({
+            text: "<strong>" + esc(name) + "</strong> hazır ✓",
+            cls: "sys",
+            ready: true,
+            t: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+          });
+        }
+      } catch (_) {}
+    });
+
+    // Session summary
+    document.getElementById("sessionSummaryBtn")?.addEventListener("click", () => {
+      const log = load("origins_combat_log_v1", []);
+      if (!log.length) return alert("Savaş logu boş.");
+      const lines = log.slice(0, 25).map((x) => "• " + (x.t || "") + " " + String(x.text || "").replace(/<[^>]+>/g, ""));
+      const text = "=== Origins oturum özeti ===\n" + lines.join("\n");
+      try {
+        navigator.clipboard.writeText(text);
+        chatAdd("Oturum özeti panoya kopyalandı (" + lines.length + " satır)", "sys");
+      } catch (_) {
+        prompt("Özet:", text.slice(0, 500));
+      }
+    });
+
+    // Quick NPC spawn
+    document.getElementById("qNpcSpawn")?.addEventListener("click", () => {
+      if (!isDm()) return alert("Sadece DM.");
+      const name = (document.getElementById("qNpcName")?.value || "Asker").trim() || "Asker";
+      const count = Math.min(12, Math.max(1, +(document.getElementById("qNpcCount")?.value || 3)));
+      const hp = Math.max(1, +(document.getElementById("qNpcHp")?.value || 12));
+      const ac = Math.max(0, +(document.getElementById("qNpcAc")?.value || 14));
+      const baseCx = selectedId
+        ? (tokens.find((x) => x.id === selectedId)?.cx || 0)
+        : Math.round((-panX / scale) / CELL);
+      const baseCy = selectedId
+        ? (tokens.find((x) => x.id === selectedId)?.cy || 0)
+        : Math.round((-panY / scale) / CELL);
+      for (let i = 0; i < count; i++) {
+        const id = "qn_" + Date.now().toString(36) + "_" + i;
+        tokens.push({
+          id: id,
+          refId: id,
+          name: count > 1 ? name + " " + (i + 1) : name,
+          title: "Düşman",
+          cx: baseCx + (i % 4),
+          cy: baseCy + Math.floor(i / 4),
+          hp: hp,
+          hpMax: hp,
+          ac: ac,
+          damage: "1d6",
+          enemy: true,
+          faction: "enemy",
+          form: "char",
+          size: 1,
+          speed: 2,
+          owner: "",
+          portrait: "",
+          statuses: [],
+        });
+      }
+      saveTokens();
+      renderTokens();
+      renderHP();
+      scheduleSync();
+      chatAdd("Hızlı NPC: " + count + "× " + esc(name) + " (HP " + hp + ")", "sys");
+    });
+
+    // Range redraw on change
+    document.getElementById("atkRangeFt")?.addEventListener("change", () => {
+      try { redrawOverlays(); } catch (_) {}
+    });
+
+    // Portrait missing warn
+    function updatePortraitWarn() {
+      const el = document.getElementById("portraitWarn");
+      if (!el) return;
+      const miss = tokens.filter((tk) => !tk.portrait || String(tk.portrait).indexOf("data:") !== 0);
+      if (!miss.length) {
+        el.style.display = "none";
+        return;
+      }
+      el.style.display = "block";
+      el.textContent = "Portresi eksik token: " + miss.map((t) => t.name).slice(0, 6).join(", ")
+        + (miss.length > 6 ? "…" : "") + " — 🖼 Resimler dene";
+    }
+    setInterval(updatePortraitWarn, 5000);
+    setTimeout(updatePortraitWarn, 1500);
+
+    // Map size warning already via console - enhance map upload
+    const mapInp = document.getElementById("mapUpload");
+    if (mapInp && !mapInp.dataset.warnBound) {
+      mapInp.dataset.warnBound = "1";
+      mapInp.addEventListener("change", (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f && f.size > 4 * 1024 * 1024) {
+          chatAdd("Map dosyası büyük (" + Math.round(f.size / 1024 / 1024) + " MB) — sıkıştırılacak, kayıt alanı dolabilir", "sys");
+        }
+      });
+    }
+
+
+    (function armorMatrixUI() {
+      const box = document.getElementById("armorMatrixBox");
+      if (!box) return;
+      function paint() {
+        const m = loadArmorMatrix();
+        const types = ["light", "chain", "plate"];
+        const wtypes = ["slashing", "piercing", "bludgeoning"];
+        const labels = { light: "Hafif", chain: "Zincir", plate: "Plate", slashing: "Kesici", piercing: "Saplama", bludgeoning: "Ezici" };
+        let html = "<table style='width:100%;border-collapse:collapse;font-size:0.65rem'><tr><th></th>";
+        wtypes.forEach((w) => { html += "<th style='padding:0.15rem'>" + labels[w] + "</th>"; });
+        html += "</tr>";
+        types.forEach((at) => {
+          html += "<tr><td style='padding:0.15rem;color:#d4af37'>" + labels[at] + "</td>";
+          wtypes.forEach((w) => {
+            const v = (m[at] && m[at][w] != null) ? m[at][w] : 1;
+            html += "<td><input type='number' step='0.05' min='0.1' max='3' data-am='" + at + "." + w + "' value='" + v + "' style='width:3.2rem;background:#050507;border:1px solid #252532;color:#eee;padding:0.15rem;border-radius:3px;font-size:0.65rem'/></td>";
+          });
+          html += "</tr>";
+        });
+        html += "</table><p style='margin:0.25rem 0 0;color:#6b665c'>1.0 = normal · &gt;1 zırha karşı iyi · &lt;1 kötü. Sonra zırh puanı düşülür.</p>";
+        box.innerHTML = html;
+        box.querySelectorAll("[data-am]").forEach((inp) => {
+          inp.addEventListener("change", () => {
+            const m2 = loadArmorMatrix();
+            const [at, w] = inp.dataset.am.split(".");
+            if (!m2[at]) m2[at] = {};
+            m2[at][w] = Math.max(0.1, Math.min(3, +inp.value || 1));
+            saveArmorMatrix(m2);
+          });
+        });
+      }
+      paint();
+    })();
+
+    // Energy edit on inspector if present
+  })();
+
   document.getElementById("roomReconnect")?.addEventListener("click", () => {
     const name = typeof currentDisplayName === "function" ? currentDisplayName() : (document.getElementById("displayName")?.value || "Oyuncu");
     OriginsSync?.setDisplayName(name);
@@ -6338,11 +6883,16 @@ el.querySelectorAll(".init-row").forEach((row) => {
       return;
     }
     if (cnt) cnt.textContent = "(" + list.length + ")";
+    const now = Date.now();
     el.innerHTML = list.map((p) => {
-      return `<div class="presence-row ${p.host ? "host" : ""}">
-        <span class="dot"></span>
+      const age = p.t ? (now - p.t) : 0;
+      const afk = age > 20000; // 20 sn presence yok
+      const dmTag = p.dm ? " · DM" : "";
+      const readyTag = p.ready ? " · HAZIR" : "";
+      return `<div class="presence-row ${p.host ? "host" : ""} ${afk ? "presence-afk" : ""}">
+        <span class="dot" style="${afk ? "background:#6b665c" : ""}"></span>
         <span>${esc(p.name || "Oyuncu")}</span>
-        <span class="tag">${p.host ? "HOST" : "oyuncu"}${p.ready ? " · HAZIR" : ""}</span>
+        <span class="tag">${p.host ? "HOST" : "oyuncu"}${dmTag}${readyTag}${afk ? " · AFK" : ""}</span>
       </div>`;
     }).join("");
   }
@@ -7991,19 +8541,30 @@ el.querySelectorAll(".init-row").forEach((row) => {
 
   // Yan panel: başlıklara tıklayınca aç/kapa
   (function initSideSections() {
+    const STORE = "origins_side_sections_v1";
+    function loadSecState() {
+      try { return JSON.parse(localStorage.getItem(STORE) || "{}") || {}; } catch (_) { return {}; }
+    }
+    function saveSecState(st) {
+      try { localStorage.setItem(STORE, JSON.stringify(st)); } catch (_) {}
+    }
     function build(side) {
       if (!side || side.dataset.sectionsBuilt) return;
       side.dataset.sectionsBuilt = "1";
-      const nodes = Array.from(side.childNodes);
       const h3s = Array.from(side.querySelectorAll(":scope > h3"));
       if (!h3s.length) return;
+      const saved = loadSecState();
       h3s.forEach((h3) => {
         const wrap = document.createElement("div");
-        wrap.className = "side-section open";
+        const title = (h3.textContent || "").trim();
+        const key = title.toLowerCase().replace(/\s+/g, "_").slice(0, 48);
+        // Varsayılan KAPALI; kullanıcı açtıysa hatırla
+        const isOpen = saved[key] === true;
+        wrap.className = "side-section" + (isOpen ? " open" : "");
+        wrap.dataset.secKey = key;
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "side-section-toggle";
-        const title = (h3.textContent || "").trim();
         btn.innerHTML = "<span class=\"side-section-title\">" + title + "</span><span class=\"side-chev\">▼</span>";
         const body = document.createElement("div");
         body.className = "side-section-body";
@@ -8021,6 +8582,9 @@ el.querySelectorAll(".init-row").forEach((row) => {
         h3.remove();
         btn.addEventListener("click", () => {
           wrap.classList.toggle("open");
+          const st = loadSecState();
+          st[key] = wrap.classList.contains("open");
+          saveSecState(st);
         });
       });
     }

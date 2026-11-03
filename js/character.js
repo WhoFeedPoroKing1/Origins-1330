@@ -74,6 +74,90 @@ function initCharacters() {
     }
   }
 
+  function invUid() {
+    return "i_" + Math.random().toString(36).slice(2, 9);
+  }
+
+  function readInventoryFromDom() {
+    const list = [];
+    document.querySelectorAll("#invList .inv-row").forEach((row) => {
+      const name = (row.querySelector("[data-inv=name]")?.value || "").trim();
+      if (!name) return;
+      const qty = Math.max(1, parseInt(row.querySelector("[data-inv=qty]")?.value, 10) || 1);
+      const notes = (row.querySelector("[data-inv=notes]")?.value || "").trim();
+      const id = row.dataset.invId || invUid();
+      const slot = row.querySelector("[data-inv=slot]")?.value || "bag";
+      const kind = row.querySelector("[data-inv=kind]")?.value || "gear";
+      const weaponType = row.querySelector("[data-inv=wtype]")?.value || "";
+      const damage = (row.querySelector("[data-inv=dmg]")?.value || "").trim();
+      const damageBonus = parseInt(row.querySelector("[data-inv=dbon]")?.value, 10) || 0;
+      const armorType = row.querySelector("[data-inv=atype]")?.value || "";
+      const armorValue = parseInt(row.querySelector("[data-inv=aval]")?.value, 10) || 0;
+      const acBonus = parseInt(row.querySelector("[data-inv=ac]")?.value, 10) || 0;
+      const speedPenalty = parseInt(row.querySelector("[data-inv=spd]")?.value, 10) || 0;
+      const twoHand = !!row.querySelector("[data-inv=2h]")?.checked;
+      list.push({
+        id, name, qty, notes, slot, kind,
+        weaponType: kind === "weapon" ? weaponType : "",
+        damage: kind === "weapon" ? (damage || "1d6") : "",
+        damageBonus: kind === "weapon" ? damageBonus : 0,
+        armorType: kind === "armor" ? armorType : "",
+        armorValue: kind === "armor" ? armorValue : 0,
+        acBonus: kind === "armor" ? acBonus : 0,
+        speedPenalty: kind === "armor" ? speedPenalty : 0,
+        twoHand: kind === "weapon" ? twoHand : false,
+        equipped: slot === "mainhand" || slot === "offhand" || slot === "armor",
+      });
+    });
+    return list;
+  }
+
+  function invSel(opts, cur) {
+    return opts.map(function (o) {
+      return "<option value=\"" + o[0] + "\"" + (cur === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+    }).join("");
+  }
+
+  function renderInventoryEditor(items) {
+    const box = document.getElementById("invList");
+    if (!box) return;
+    items = Array.isArray(items) ? items : [];
+    if (!items.length) {
+      items = [{ id: invUid(), name: "", qty: 1, notes: "", slot: "bag", kind: "gear" }];
+    }
+    box.innerHTML = items.map(function (it) {
+      const kind = it.kind || "gear";
+      return "<div class=\"inv-row inv-row-full\" data-inv-id=\"" + (it.id || invUid()) + "\">" +
+        "<input type=\"text\" data-inv=\"name\" placeholder=\"Eşya adı\" maxlength=\"48\" value=\"" + String(it.name || "").replace(/"/g, "&quot;") + "\" />" +
+        "<input type=\"number\" data-inv=\"qty\" min=\"1\" max=\"99\" value=\"" + (it.qty || 1) + "\" title=\"Adet\" />" +
+        "<select data-inv=\"kind\" title=\"Tür\">" + invSel([["gear","Eşya"],["weapon","Silah"],["armor","Zırh"]], kind) + "</select>" +
+        "<select data-inv=\"slot\" title=\"Slot\">" + invSel([["bag","Çanta"],["mainhand","Sağ el"],["offhand","Sol el"],["armor","Zırh"]], it.slot || "bag") + "</select>" +
+        "<input type=\"text\" data-inv=\"dmg\" placeholder=\"1d6\" value=\"" + String(it.damage || "").replace(/"/g, "&quot;") + "\" title=\"Silah hasarı\" style=\"" + (kind !== "weapon" ? "opacity:0.35" : "") + "\" />" +
+        "<input type=\"number\" data-inv=\"dbon\" placeholder=\"+hasar\" value=\"" + (it.damageBonus || 0) + "\" title=\"Hasar artışı\" style=\"" + (kind !== "weapon" ? "opacity:0.35" : "") + "\" />" +
+        "<select data-inv=\"wtype\" title=\"Silah türü\" style=\"" + (kind !== "weapon" ? "opacity:0.35" : "") + "\">" + invSel([["","—"],["slashing","Kesici"],["piercing","Saplamalı"],["bludgeoning","Ezici"]], it.weaponType || "") + "</select>" +
+        "<label class=\"inv-eq\" style=\"" + (kind !== "weapon" ? "opacity:0.35" : "") + "\"><input type=\"checkbox\" data-inv=\"2h\" " + (it.twoHand ? "checked" : "") + "/> 2El</label>" +
+        "<select data-inv=\"atype\" title=\"Zırh türü\" style=\"" + (kind !== "armor" ? "opacity:0.35" : "") + "\">" + invSel([["","—"],["light","Hafif"],["chain","Zincir"],["plate","Plate"]], it.armorType || "") + "</select>" +
+        "<input type=\"number\" data-inv=\"aval\" placeholder=\"Zırh\" value=\"" + (it.armorValue || 0) + "\" title=\"Hasar azaltma\" style=\"" + (kind !== "armor" ? "opacity:0.35" : "") + "\" />" +
+        "<input type=\"number\" data-inv=\"ac\" placeholder=\"AC+\" value=\"" + (it.acBonus || 0) + "\" title=\"AC artışı\" style=\"" + (kind !== "armor" ? "opacity:0.35" : "") + "\" />" +
+        "<input type=\"number\" data-inv=\"spd\" placeholder=\"Hız ceza\" value=\"" + (it.speedPenalty || 0) + "\" title=\"AC azaltır\" style=\"" + (kind !== "armor" ? "opacity:0.35" : "") + "\" />" +
+        "<input type=\"text\" data-inv=\"notes\" placeholder=\"Not\" maxlength=\"80\" value=\"" + String(it.notes || "").replace(/"/g, "&quot;") + "\" />" +
+        "<button type=\"button\" class=\"inv-del\" title=\"Sil\">×</button>" +
+      "</div>";
+    }).join("");
+    box.querySelectorAll(".inv-del").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        btn.closest(".inv-row")?.remove();
+        if (!box.querySelector(".inv-row")) renderInventoryEditor([]);
+      });
+    });
+    box.querySelectorAll("[data-inv=kind]").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        const items = readInventoryFromDom();
+        renderInventoryEditor(items.length ? items : []);
+      });
+    });
+  }
+
   function readForm() {
     return {
       id: editId || uid(),
@@ -127,11 +211,12 @@ function initCharacters() {
       title: val("hTitle", "Büyücü"),
       hp: parseInt(val("hHp", "10"), 10) || 10,
       hpMax: parseInt(val("hHpMax", "10"), 10) || 10,
-      portrait: hPortrait || vPortrait || "",
+      portrait: hPortrait || "", // yoldaş resmi kök portrait'a karışmasın
       magicName: (val("hMagic", "") || "").trim(),
       type: val("hType", ""),
       tokenColor: val("hTokColor", "#d4af37") || "#d4af37",
       tokenShape: val("hTokShape", "circle") || "circle",
+      inventory: readInventoryFromDom(),
       diceStyle: {
         color: val("dColor", "#d4af37") || "#d4af37",
         color2: val("dColor2", "#1a1520") || "#1a1520",
@@ -197,6 +282,9 @@ function initCharacters() {
     setVal("hEnd", hu.end || 3);
     setVal("hMind", hu.mind || 3);
     setVal("hTokColor", hu.tokenColor || c.tokenColor || "#d4af37");
+    try {
+      renderInventoryEditor(c.inventory || hu.inventory || []);
+    } catch (_) {}
     if (document.getElementById("hTokShape")) document.getElementById("hTokShape").value = hu.tokenShape || c.tokenShape || "circle";
     setVal("hCtrl", hu.ctrl || 3);
     setVal("hFx", hu.fx || "");
@@ -440,6 +528,18 @@ function initCharacters() {
   document.getElementById("dicePreviewCube")?.addEventListener("click", playDicePreviewAnim);
   updateDicePreview();
 
+  document.getElementById("invAdd")?.addEventListener("click", () => {
+    const cur = readInventoryFromDom();
+    cur.push({ id: invUid(), name: "", qty: 1, notes: "", equipped: false });
+    renderInventoryEditor(cur);
+  });
+  try {
+    if (document.getElementById("invList") && !document.querySelector("#invList .inv-row")) {
+      renderInventoryEditor([]);
+    }
+  } catch (_) {}
+
   renderList();
 }
+
 

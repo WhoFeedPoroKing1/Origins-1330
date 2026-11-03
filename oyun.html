@@ -59,6 +59,7 @@
         <input type="text" id="roomCodeInput" class="tbtn" placeholder="ODA KODU" maxlength="8" style="width:5.5rem;text-transform:uppercase;letter-spacing:0.06em" title="Oda kodu — aynı kod = aynı masa" />
         <button type="button" class="tbtn" id="roomJoinBtn" title="Odaya katıl">Katıl</button>
         <button type="button" class="tbtn" id="roomNewBtn" title="Yeni rastgele oda">Yeni oda</button>
+        <button type="button" class="tbtn" id="roomCopyLink" title="Oda linkini kopyala">Link</button>
         <button type="button" class="tbtn" id="roomReconnect" title="Yeniden bağlan">↻</button>
         <span id="roomStatus" style="font-size:0.72rem;color:#d4af37;margin-left:0.35rem">Bağlanıyor…</span>
         <button type="button" class="tbtn" id="ambientBtn" title="Ambiyans">♫</button>
@@ -159,6 +160,7 @@
           <button type="button" class="btn btn-gold btn-sm" id="startBattle">Savaş</button>
           <button type="button" class="btn btn-ghost btn-sm" id="nextTurn">Sıra →</button>
           <button type="button" class="btn btn-ghost btn-sm" id="turnReadyBtn">Turum bitti</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="initReadyBtn">Hazırım ✓</button>
           <button type="button" class="btn btn-ghost btn-sm" id="clearBattle">Temizle</button>
         </div>
         <div class="combat-hp" id="combatHpList"></div>
@@ -170,6 +172,8 @@
           <select id="atkFrom"></select>
           <label style="font-size:0.62rem;color:#6b665c">Hedef</label>
           <select id="atkTo"></select>
+          <label style="font-size:0.62rem;color:#6b665c">Menzil (ft) · halka</label>
+          <input type="number" id="atkRangeFt" min="5" max="120" step="5" value="5" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem" />
           <button type="button" class="btn btn-gold btn-sm" id="atkRollBtn" style="width:100%;margin-bottom:0.35rem">Saldırı zarı</button>
           <div class="fx-row">
             <button type="button" data-fx="hit">Vuruş</button>
@@ -184,8 +188,15 @@
         <div id="presenceList" class="presence-list"></div>
         <h3>Savaş logu</h3>
         <div class="combat-log-panel">
+          <div class="clog-filters" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
+            <button type="button" class="tbtn clog-f active" data-clog="all">Tümü</button>
+            <button type="button" class="tbtn clog-f" data-clog="fx">Hasar</button>
+            <button type="button" class="tbtn clog-f" data-clog="dice">Zar</button>
+            <button type="button" class="tbtn clog-f" data-clog="combat">Savaş</button>
+          </div>
           <div id="combatLog" class="combat-log"></div>
           <button type="button" class="tbtn" id="combatLogClear" style="width:100%;margin-top:0.3rem;font-size:0.65rem">Logu temizle</button>
+          <button type="button" class="tbtn" id="sessionSummaryBtn" style="width:100%;margin-top:0.25rem;font-size:0.65rem">Oturum özeti</button>
         </div>
         <h3>Sohbet &amp; log</h3>
         <div class="chat-panel">
@@ -337,7 +348,22 @@
         <div class="hp-list" id="hpList"></div>
 
         <h3>Notlar</h3>
-        <textarea id="sessionNotes" style="width:100%;min-height:64px;background:#0b0b10;border:1px solid #252532;color:#f2efe6;border-radius:5px;padding:0.45rem;font-size:0.78rem;font-family:inherit"></textarea>
+        <textarea id="sessionNotes" style="width:100%;min-height:64px;background:#0b0b10;border:1px solid #252532;color:#f2efe6;border-radius:5px;padding:0.45rem;font-size:0.78rem;font-family:inherit" placeholder="Herkesin gördüğü oturum notu"></textarea>
+        <h3 class="dm-only">DM gizli not</h3>
+        <textarea id="dmSecretNotes" class="dm-only" style="width:100%;min-height:56px;background:#120a0a;border:1px solid #3a2020;color:#f2efe6;border-radius:5px;padding:0.45rem;font-size:0.75rem;font-family:inherit" placeholder="Sadece DM görür — senkron yok"></textarea>
+        <h3>Kişisel journal</h3>
+        <textarea id="playerJournal" style="width:100%;min-height:56px;background:#0b0b10;border:1px solid #252532;color:#f2efe6;border-radius:5px;padding:0.45rem;font-size:0.75rem;font-family:inherit" placeholder="Sadece sende kalır"></textarea>
+        <h3 class="dm-only">Hızlı NPC</h3>
+        <div class="dm-only" style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;margin-bottom:0.5rem;font-size:0.72rem">
+          <input id="qNpcName" placeholder="İsim" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.3rem;border-radius:4px" />
+          <input id="qNpcCount" type="number" min="1" max="12" value="3" title="Adet" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.3rem;border-radius:4px" />
+          <input id="qNpcHp" type="number" min="1" value="12" title="HP" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.3rem;border-radius:4px" />
+          <input id="qNpcAc" type="number" min="0" value="14" title="AC" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.3rem;border-radius:4px" />
+          <button type="button" class="btn btn-gold btn-sm" id="qNpcSpawn" style="grid-column:1/-1">Masaya diz</button>
+        </div>
+                <h3 class="dm-only">Zırh × silah çarpanları</h3>
+        <div id="armorMatrixBox" class="dm-only" style="font-size:0.65rem;color:#a8a396;margin-bottom:0.5rem"></div>
+        <div id="portraitWarn" style="font-size:0.65rem;color:#e05a5a;margin:0.35rem 0;display:none"></div>
 
         <h3>DM</h3>
         <div id="dmLock" class="dm-box">
