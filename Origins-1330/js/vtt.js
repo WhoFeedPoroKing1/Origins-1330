@@ -225,9 +225,32 @@ function initVTT() {
       "<div class=\"ss-hpbar\"><span style=\"width:" + pct + "%\"></span></div>" +
       "<div class=\"ss-stats\">" +
       "<span>HP " + hp + "/" + hpMax + "</span>" +
-      (typeof isDm === "function" && isDm() ? "<span>AC " + ac + "</span>" : "") +
+      (function () {
+        let eff = ac;
+        let detail = "";
+        try {
+          if (typeof resolveTokenAC === "function") eff = resolveTokenAC(tok);
+          const armor = typeof getEquippedArmor === "function" ? getEquippedArmor(tok) : null;
+          if (armor) {
+            const parts = [];
+            if (armor.acBonus) parts.push("zırh +" + armor.acBonus);
+            if (armor.speedPenalty) parts.push("hız −" + armor.speedPenalty);
+            detail = parts.length ? " (" + parts.join(", ") + ")" : "";
+          }
+        } catch (_) {}
+        return "<span title=\"Etkili AC\">AC " + eff + detail + "</span>";
+      })() +
       "<span>Hız " + spd + "</span>" +
-      "<span>" + esc(tok.damage || "—") + "</span>" +
+      (function () {
+        try {
+          if (typeof resolveAttackDamage === "function") {
+            const rd = resolveAttackDamage(tok);
+            const icons = { slashing: "⚔", piercing: "✦", bludgeoning: "🔨" };
+            return "<span>" + (icons[rd.weaponType] || "") + " " + esc(rd.formula || tok.damage || "—") + "</span>";
+          }
+        } catch (_) {}
+        return "<span>" + esc(tok.damage || "—") + "</span>";
+      })() +
       "</div>" + stHtml +
       "</div></div>";
   }
@@ -2182,6 +2205,9 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
   }
 
   /** Token için etkili hasar formülü ve silah türü */
+  function weaponTypeIcon(wt) {
+    return ({ slashing: "⚔", piercing: "✦", bludgeoning: "🔨" })[wt] || "•";
+  }
   function resolveAttackDamage(tok) {
     const w = getEquippedWeapon(tok);
     if (w) {
@@ -2325,30 +2351,34 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
       <select id="tokSize" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem">
         ${TOKEN_SIZE_STEPS.map((s) => `<option value="${s}" ${normalizeTokenSize(t.size) === s ? "selected" : ""}>${TOKEN_SIZE_LABELS[s] || s}</option>`).join("")}
       </select>
-      <div style="font-size:0.65rem;color:#d4af37;margin:0.5rem 0 0.25rem">Envanter / ekipman</div>
-      <div id="tokInvList" style="font-size:0.72rem;max-height:160px;overflow-y:auto;margin-bottom:0.3rem"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-bottom:0.25rem">
-        <input type="text" id="tokInvName" placeholder="Eşya adı" maxlength="40" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
-        <select id="tokInvSlot" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
-          <option value="bag">Çanta</option>
-          <option value="mainhand">Sağ el</option>
-          <option value="offhand">Sol el</option>
-          <option value="armor">Zırh</option>
-        </select>
-        <select id="tokInvKind" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
-          <option value="gear">Eşya</option>
-          <option value="weapon">Silah</option>
-          <option value="armor">Zırh</option>
-        </select>
-        <input type="text" id="tokInvDmg" placeholder="Hasar 1d8" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
-        <select id="tokInvWtype" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
-          <option value="slashing">Kesici</option>
-          <option value="piercing">Saplama</option>
-          <option value="bludgeoning">Ezici</option>
-        </select>
-        <input type="number" id="tokInvAval" placeholder="Zırh puan" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
-      </div>
-      <button type="button" class="tbtn" id="tokInvAdd" style="width:100%;font-size:0.68rem;margin-bottom:0.4rem">Eşya ekle</button>
+      <div style="font-size:0.65rem;color:#d4af37;margin:0.5rem 0 0.25rem">Envanter</div>
+      <p style="font-size:0.6rem;color:#6b665c;margin:0 0 0.3rem;line-height:1.35">Karakter sayfasında oluştur. Burada slot ile <strong>tak / çıkar</strong>.</p>
+      <div id="tokInvList" style="font-size:0.72rem;max-height:180px;overflow-y:auto;overflow-x:hidden;margin-bottom:0.35rem;width:100%"></div>
+      <details style="margin-bottom:0.4rem;font-size:0.68rem;color:#a8a396">
+        <summary style="cursor:pointer;color:#d4af37">Hızlı eşya ekle</summary>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-top:0.3rem">
+          <input type="text" id="tokInvName" placeholder="Ad" maxlength="40" style="grid-column:1/-1;background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
+          <select id="tokInvSlot" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+            <option value="bag">Çanta</option>
+            <option value="mainhand">Sağ el</option>
+            <option value="offhand">Sol el</option>
+            <option value="armor">Zırh</option>
+          </select>
+          <select id="tokInvKind" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+            <option value="gear">Eşya</option>
+            <option value="weapon">Silah</option>
+            <option value="armor">Zırh</option>
+          </select>
+          <input type="text" id="tokInvDmg" placeholder="1d8" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
+          <select id="tokInvWtype" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+            <option value="slashing">Kesici</option>
+            <option value="piercing">Saplama</option>
+            <option value="bludgeoning">Ezici</option>
+          </select>
+          <input type="number" id="tokInvAval" placeholder="Zırh puan" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
+          <button type="button" class="tbtn" id="tokInvAdd" style="grid-column:1/-1;font-size:0.68rem">Ekle</button>
+        </div>
+      </details>
       <button type="button" class="tbtn" id="tokDel" style="width:100%;margin-top:0.4rem;color:#e05a5a;border-color:rgba(224,90,90,0.4)">Token sil</button>
     </div>`;
     const allowEdit = canEditToken(t) || isDm();
@@ -2510,33 +2540,110 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
       scheduleSync();
     });
 
-    // Envanter paneli
+    // Envanter: karakterden gelir; masada tak / çıkar
     (function wireTokInv() {
       const invBox = document.getElementById("tokInvList");
       if (!invBox) return;
       const canInv = isDm() || canEditToken(t) || canControlToken(t);
+
+      function setItemSlot(items, idx, newSlot) {
+        items = items.map((x, i) => Object.assign({}, x));
+        if (newSlot !== "bag") {
+          // Aynı slotta başka eşya varsa çantaya
+          items.forEach((x, i) => {
+            if (i !== idx && x.slot === newSlot) {
+              x.slot = "bag";
+              x.equipped = false;
+            }
+          });
+        }
+        if (items[idx]) {
+          items[idx].slot = newSlot;
+          items[idx].equipped = newSlot !== "bag";
+          // 2 el silah: offhand boşalt
+          if (newSlot === "mainhand" && items[idx].twoHand) {
+            let freed = false;
+            items.forEach((x, i) => {
+              if (i !== idx && x.slot === "offhand") {
+                x.slot = "bag";
+                x.equipped = false;
+                freed = true;
+              }
+            });
+            if (freed) {
+              try { chatAdd("2 el silah: sol el boşaltıldı", "sys"); } catch (_) {}
+            } else {
+              try { chatAdd("2 el silah takıldı — sol el kilitli", "sys"); } catch (_) {}
+            }
+          }
+          // Sol ele takarken sağda 2el varsa engelle
+          if (newSlot === "offhand") {
+            const main = items.find((x) => x.slot === "mainhand" && x.twoHand);
+            if (main) {
+              try { alert("Sağ elde 2 el silah var (" + main.name + "). Sol el kullanılamaz."); } catch (_) {}
+              return getCharInventory(t); // no change
+            }
+          }
+        }
+        return items;
+      }
+
       function paint() {
         const items = getCharInventory(t);
         if (!items.length) {
-          invBox.innerHTML = '<div style="color:#6b665c;font-size:0.68rem">Boş</div>';
+          invBox.innerHTML = '<div style="color:#6b665c;font-size:0.68rem">Envanter boş — Karakter sayfasından eşya ekle.</div>';
           return;
         }
-        const slotL = { bag: "Çanta", mainhand: "Sağ", offhand: "Sol", armor: "Zırh" };
+        const slotOpts = [
+          ["bag", "Çanta"],
+          ["mainhand", "Sağ el"],
+          ["offhand", "Sol el"],
+          ["armor", "Zırh"],
+        ];
         invBox.innerHTML = items.map((it, idx) => {
           const extra = it.kind === "weapon"
-            ? (it.damage || "") + (it.weaponType ? " · " + it.weaponType : "")
-            : (it.kind === "armor" ? ("Z" + (it.armorValue || 0) + " AC+" + (it.acBonus || 0)) : "");
-          return `<div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem;padding:0.2rem 0;border-bottom:1px solid #1a1a22">
-            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-              <span style="color:#d4af37">${esc(slotL[it.slot] || it.slot || "Çanta")}</span>
-              ${esc(it.name)} <span style="color:#6b665c">×${it.qty || 1}</span>
-              ${extra ? "<span style=\"color:#6b665c\"> · " + esc(extra) + "</span>" : ""}
-            </span>
-            ${canInv ? `<button type="button" data-inv-del="${idx}" style="background:transparent;border:none;color:#e05a5a;cursor:pointer">×</button>` : ""}
+            ? ((it.damage || "") + (it.weaponType ? " · " + it.weaponType : ""))
+            : (it.kind === "armor"
+              ? ("Z" + (it.armorValue || 0) + " AC+" + (it.acBonus || 0) + (it.speedPenalty ? " Hız-" + it.speedPenalty : ""))
+              : (it.notes || ""));
+          const opts = slotOpts.map(([v, lab]) =>
+            `<option value="${v}" ${(it.slot || "bag") === v ? "selected" : ""}>${lab}</option>`
+          ).join("");
+          return `<div style="display:grid;grid-template-columns:1fr auto;gap:0.25rem;align-items:center;margin-bottom:0.35rem;padding:0.3rem;background:#0a0a10;border:1px solid #252532;border-radius:5px">
+            <div style="min-width:0">
+              <div style="font-weight:600;font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.name)} <span style="color:#6b665c;font-weight:400">×${it.qty || 1}</span></div>
+              <div style="font-size:0.62rem;color:#6b665c">${esc(extra || (it.kind || "eşya"))}</div>
+            </div>
+            <div style="display:flex;gap:0.2rem;align-items:center">
+              <select data-inv-slot="${idx}" ${canInv ? "" : "disabled"} title="Tak / çıkar"
+                style="background:#050507;border:1px solid #252532;color:#eee;padding:0.2rem;border-radius:4px;font-size:0.65rem;max-width:5.5rem">
+                ${opts}
+              </select>
+              ${canInv ? `<button type="button" data-inv-del="${idx}" title="Sil" style="background:transparent;border:none;color:#e05a5a;cursor:pointer;font-size:0.9rem">×</button>` : ""}
+            </div>
           </div>`;
         }).join("");
+
+        invBox.querySelectorAll("[data-inv-slot]").forEach((sel) => {
+          sel.addEventListener("change", () => {
+            if (!canInv) return;
+            let items = getCharInventory(t);
+            items = setItemSlot(items, +sel.dataset.invSlot, sel.value);
+            setCharInventory(t, items);
+            // Token hasar / AC ipucu
+            try {
+              const w = resolveAttackDamage(t);
+              if (w && w.formula) t.damage = w.formula.split("+")[0].replace(/[+-]\d+$/, "") || t.damage;
+            } catch (_) {}
+            paint();
+            try { renderShortSheet(t); } catch (_) {}
+            try { scheduleSync(); } catch (_) {}
+          });
+        });
         invBox.querySelectorAll("[data-inv-del]").forEach((btn) => {
           btn.addEventListener("click", () => {
+            if (!canInv) return;
+            if (!confirm("Eşya silinsin mi?")) return;
             const items = getCharInventory(t);
             items.splice(+btn.dataset.invDel, 1);
             setCharInventory(t, items);
@@ -2546,24 +2653,21 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
         });
       }
       paint();
+
       const addBtn = document.getElementById("tokInvAdd");
       if (addBtn) {
         addBtn.disabled = !canInv;
         addBtn.addEventListener("click", () => {
           if (!canInv) return;
           const name = (document.getElementById("tokInvName")?.value || "").trim();
-          if (!name) return;
+          if (!name) return alert("Eşya adı yaz.");
           const slot = document.getElementById("tokInvSlot")?.value || "bag";
           const kind = document.getElementById("tokInvKind")?.value || "gear";
           let items = getCharInventory(t);
-          // Slot doluysa eskiyi çantaya at
           if (slot !== "bag") {
-            items = items.map((x) => {
-              if (x.slot === slot) return Object.assign({}, x, { slot: "bag", equipped: false });
-              return x;
-            });
+            items = items.map((x) => x.slot === slot ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
           }
-          const item = {
+          items.push({
             id: "i_" + Math.random().toString(36).slice(2, 8),
             name, qty: 1, notes: "", slot, kind,
             damage: kind === "weapon" ? ((document.getElementById("tokInvDmg")?.value || "1d6").trim()) : "",
@@ -2572,19 +2676,18 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
             armorType: kind === "armor" ? "chain" : "",
             armorValue: kind === "armor" ? (+document.getElementById("tokInvAval")?.value || 0) : 0,
             acBonus: kind === "armor" ? 1 : 0,
-            speedPenalty: kind === "armor" ? 0 : 0,
+            speedPenalty: 0,
             twoHand: false,
             equipped: slot !== "bag",
-          };
-          items.push(item);
+          });
           setCharInventory(t, items);
           if (document.getElementById("tokInvName")) document.getElementById("tokInvName").value = "";
           paint();
           try { renderShortSheet(t); } catch (_) {}
-          try { renderInspector(); } catch (_) {}
         });
       }
     })();
+
     document.getElementById("tokDel")?.addEventListener("click", () => {
       if (!canDeleteToken(t)) {
         alert("Sadece kendi token’ını veya yoldaşını silebilirsin. Üstten “Ben” ile karakterini seç.");
@@ -4830,6 +4933,15 @@ el.querySelectorAll(".init-row").forEach((row) => {
   }
 
   document.getElementById("atkRollBtn")?.addEventListener("click", openAtkRoll);
+  document.getElementById("atkReactionBtn")?.addEventListener("click", () => {
+    if (!atkFromId || !atkToId) return alert("Saldıran ve hedef seç (reaksiyon / fırsat saldırısı).");
+    const atk = tokens.find((x) => x.id === atkFromId);
+    const tgt = tokens.find((x) => x.id === atkToId);
+    chatAdd("⚡ <strong>Reaksiyon / fırsat saldırısı:</strong> " + esc(atk?.name || "?") + " → " + esc(tgt?.name || "?"), "combat");
+    try { combatLogAdd("⚡ Reaksiyon: " + esc(atk?.name || "?") + " → " + esc(tgt?.name || "?"), "combat"); } catch (_) {}
+    window._atkIsReaction = true;
+    openAtkRoll();
+  });
   document.querySelectorAll("[data-atk-adv]").forEach((btn) => {
     btn.addEventListener("click", () => {
       window._atkAdv = btn.dataset.atkAdv || "normal";
@@ -5186,9 +5298,14 @@ el.querySelectorAll(".init-row").forEach((row) => {
     const log = document.getElementById("diceLog");
     if (log) {
       const line = document.createElement("div");
-      line.innerHTML = "<strong>" + esc(who) + "</strong> " + (isHeal ? "şifa " : "hasar ") + esc(f) +
+      const wIcon = !isHeal ? weaponTypeIcon(last.weaponType || window._atkWeaponType || "") + " " : "";
+      line.innerHTML = "<strong>" + esc(who) + "</strong> " + wIcon + (isHeal ? "şifa " : "hasar ") + esc(f) +
         (!isHeal && last.isCrit ? " ×2" : "") + " → " + (isHeal ? "+" : "−") + dmgDone +
         (!isHeal && target.hp <= 0 ? " 💀 bayıldı" : "");
+      try {
+        combatLogAdd(wIcon + esc(who) + " " + (isHeal ? "şifa +" : "hasar −") + dmgDone +
+          (last.isCrit ? " krit" : "") + " → " + esc(target.name || "?"), isHeal ? "fx" : "fx");
+      } catch (_) {}
       log.prepend(line);
     }
     window._lastAtkOutcome = null;
@@ -6047,6 +6164,7 @@ el.querySelectorAll(".init-row").forEach((row) => {
       doors: doors || [],
       worldTime: typeof worldTime !== "undefined" ? worldTime : "day",
       bloodMoon: typeof bloodMoon !== "undefined" ? !!bloodMoon : false,
+      sceneNotes: sceneNotes || [],
     };
   }
   window.__originsGetState = getSyncState;
@@ -6179,6 +6297,7 @@ el.querySelectorAll(".init-row").forEach((row) => {
     if (Array.isArray(st.doors)) doors = st.doors;
     if (st.worldTime === "day" || st.worldTime === "night") worldTime = st.worldTime;
     if (st.bloodMoon != null) bloodMoon = !!st.bloodMoon;
+    if (Array.isArray(st.sceneNotes)) { sceneNotes = st.sceneNotes; try { saveSceneNotes(); } catch (_) {} try { renderSceneNotes(); } catch (_) {} }
     try { applyAtmosphere(true); } catch (_) {}
     try { persistVision(); } catch (_) {}
     try { renderDoors(); } catch (_) {}
@@ -8482,20 +8601,201 @@ el.querySelectorAll(".init-row").forEach((row) => {
   renderVfx();
 
   // Yan panel: başlıklara tıklayınca aç/kapa
+
+  // ── Sahne notları (map pin) ──
+  let sceneNotes = load("origins_scene_notes_v1", []);
+  function saveSceneNotes() {
+    try { save("origins_scene_notes_v1", sceneNotes); } catch (_) {}
+  }
+  function renderSceneNotes() {
+    let layer = document.getElementById("sceneNotesLayer");
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.id = "sceneNotesLayer";
+      layer.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:25";
+      board.appendChild(layer);
+    }
+    layer.innerHTML = "";
+    (sceneNotes || []).forEach((n) => {
+      if (!n) return;
+      const el = document.createElement("div");
+      el.className = "scene-note-pin";
+      el.style.cssText = "position:absolute;transform:translate(-50%,-100%);pointer-events:auto;max-width:160px;background:rgba(12,12,18,0.92);border:1px solid #d4af37;border-radius:6px;padding:0.35rem 0.45rem;font-size:0.68rem;color:#f2efe6;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.4)";
+      el.style.left = (n.x * scale + panX) + "px";
+      el.style.top = (n.y * scale + panY) + "px";
+      el.innerHTML = "<div style='font-weight:600;color:#d4af37;margin-bottom:0.15rem'>📌</div><div style='line-height:1.3'>" + esc(n.text || "") + "</div>";
+      el.title = isDm() ? "Tıkla: sil" : (n.text || "");
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!isDm()) return;
+        if (!confirm("Not silinsin mi?")) return;
+        sceneNotes = sceneNotes.filter((x) => x.id !== n.id);
+        saveSceneNotes();
+        renderSceneNotes();
+        try { scheduleSync(); } catch (_) {}
+      });
+      layer.appendChild(el);
+    });
+  }
+  document.getElementById("sceneNoteBtn")?.addEventListener("click", () => {
+    if (!isDm()) return alert("Sadece DM map notu koyabilir.");
+    window._pendingSceneNote = true;
+    chatAdd("📌 Tahtaya tıkla — not eklenecek", "sys");
+  });
+  // hook board click for note - in pointerdown after tools
+  const _boardNoteHook = board.addEventListener.bind(board);
+  // add separate listener
+  board.addEventListener("click", (e) => {
+    if (!window._pendingSceneNote) return;
+    if (e.target.closest("button, input, select, .tok, .scene-note-pin")) return;
+    window._pendingSceneNote = false;
+    const w = worldFromClient(e.clientX, e.clientY);
+    const text = prompt("Sahne notu:");
+    if (!text || !text.trim()) return;
+    sceneNotes.push({
+      id: "n_" + Date.now().toString(36),
+      x: w.x, y: w.y,
+      text: text.trim().slice(0, 200),
+    });
+    saveSceneNotes();
+    renderSceneNotes();
+    try { scheduleSync(); } catch (_) {}
+  });
+  // refresh notes on camera
+  const _applyCamNotes = applyCamera;
+  applyCamera = function () {
+    _applyCamNotes();
+    try { renderSceneNotes(); } catch (_) {}
+  };
+  try { renderSceneNotes(); } catch (_) {}
+
+  // ── Map kütüphanesi ──
+  const MAP_LIB_KEY = "origins_map_library_v1";
+  function loadMapLib() {
+    try { return JSON.parse(localStorage.getItem(MAP_LIB_KEY) || "[]") || []; } catch (_) { return []; }
+  }
+  function saveMapLib(list) {
+    try { localStorage.setItem(MAP_LIB_KEY, JSON.stringify(list)); } catch (e) {
+      alert("Map kütüphanesi dolu — eski map sil veya daha küçük görsel kullan.");
+    }
+  }
+  function renderMapLib() {
+    const box = document.getElementById("mapLibBox");
+    if (!box) return;
+    const list = loadMapLib();
+    if (!list.length) {
+      box.innerHTML = '<span style="color:#6b665c;font-size:0.65rem">Boş — Map yükle</span>';
+      return;
+    }
+    box.innerHTML = list.map((m, i) => {
+      return `<div class="map-lib-card" draggable="true" data-map-i="${i}" title="${esc(m.name || "Map")} — sürükle"
+        style="width:64px;height:48px;border-radius:4px;border:1px solid #252532;background:#111 url(${m.thumb || m.dataUrl}) center/cover;cursor:grab;position:relative">
+        <button type="button" data-map-del="${i}" style="position:absolute;top:0;right:0;background:rgba(0,0,0,0.7);border:none;color:#e05a5a;cursor:pointer;font-size:0.7rem;line-height:1;padding:0.1rem 0.25rem">×</button>
+      </div>`;
+    }).join("");
+    box.querySelectorAll(".map-lib-card").forEach((card) => {
+      card.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/map-lib", card.dataset.mapI);
+        e.dataTransfer.effectAllowed = "copy";
+      });
+    });
+    box.querySelectorAll("[data-map-del]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const list = loadMapLib();
+        list.splice(+btn.dataset.mapDel, 1);
+        saveMapLib(list);
+        renderMapLib();
+      });
+    });
+  }
+  function addToMapLib(dataUrl, name) {
+    if (!dataUrl || dataUrl.length < 50) return;
+    // thumb küçük
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = 96; c.height = 72;
+      c.getContext("2d").drawImage(img, 0, 0, 96, 72);
+      const thumb = c.toDataURL("image/jpeg", 0.5);
+      const list = loadMapLib();
+      list.unshift({ id: "m_" + Date.now().toString(36), name: name || "Map", dataUrl, thumb, t: Date.now() });
+      // max 8 maps
+      while (list.length > 8) list.pop();
+      saveMapLib(list);
+      renderMapLib();
+    };
+    img.src = dataUrl;
+  }
+  // Drop on board
+  board.addEventListener("dragover", (e) => {
+    if (e.dataTransfer.types.includes("text/map-lib")) e.preventDefault();
+  });
+  board.addEventListener("drop", (e) => {
+    const idx = e.dataTransfer.getData("text/map-lib");
+    if (idx === "" || idx == null) return;
+    e.preventDefault();
+    if (!isDm()) return alert("Sadece DM map koyabilir.");
+    const list = loadMapLib();
+    const m = list[+idx];
+    if (!m || !m.dataUrl) return;
+    loadMapDataUrl(m.dataUrl, { preserve: false });
+    try {
+      const sc = currentScene();
+      if (sc) sc.mapBg = m.dataUrl;
+      persistScenes();
+      scheduleSync();
+      if (OriginsSync && OriginsSync.pushMapImage) OriginsSync.pushMapImage(m.dataUrl, { mapOX, mapOY, mapScale });
+    } catch (_) {}
+    chatAdd("Map kütüphaneden yüklendi: " + esc(m.name || "Map"), "sys");
+  });
+  document.getElementById("mapLibClear")?.addEventListener("click", () => {
+    if (!confirm("Map kütüphanesi silinsin mi?")) return;
+    saveMapLib([]);
+    renderMapLib();
+  });
+  // Auto-add when map uploaded
+  const _mapUp = document.getElementById("mapUpload");
+  if (_mapUp && !_mapUp.dataset.libBound) {
+    _mapUp.dataset.libBound = "1";
+    _mapUp.addEventListener("change", () => {
+      // after existing handler loads - poll briefly
+      setTimeout(() => {
+        try {
+          const sc = currentScene();
+          if (sc && sc.mapBg) addToMapLib(sc.mapBg, "Map " + new Date().toLocaleTimeString("tr-TR"));
+        } catch (_) {}
+      }, 800);
+    });
+  }
+  try { renderMapLib(); } catch (_) {}
+
+
   (function initSideSections() {
+    const STORE = "origins_side_sections_v1";
+    function loadSecState() {
+      try { return JSON.parse(localStorage.getItem(STORE) || "{}") || {}; } catch (_) { return {}; }
+    }
+    function saveSecState(st) {
+      try { localStorage.setItem(STORE, JSON.stringify(st)); } catch (_) {}
+    }
     function build(side) {
       if (!side || side.dataset.sectionsBuilt) return;
       side.dataset.sectionsBuilt = "1";
-      const nodes = Array.from(side.childNodes);
       const h3s = Array.from(side.querySelectorAll(":scope > h3"));
       if (!h3s.length) return;
+      const saved = loadSecState();
       h3s.forEach((h3) => {
         const wrap = document.createElement("div");
-        wrap.className = "side-section open";
+        const title = (h3.textContent || "").trim();
+        const key = title.toLowerCase().replace(/\s+/g, "_").slice(0, 48);
+        // Varsayılan KAPALI; kullanıcı açtıysa hatırla
+        const isOpen = saved[key] === true;
+        wrap.className = "side-section" + (isOpen ? " open" : "");
+        wrap.dataset.secKey = key;
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "side-section-toggle";
-        const title = (h3.textContent || "").trim();
         btn.innerHTML = "<span class=\"side-section-title\">" + title + "</span><span class=\"side-chev\">▼</span>";
         const body = document.createElement("div");
         body.className = "side-section-body";
@@ -8513,6 +8813,9 @@ el.querySelectorAll(".init-row").forEach((row) => {
         h3.remove();
         btn.addEventListener("click", () => {
           wrap.classList.toggle("open");
+          const st = loadSecState();
+          st[key] = wrap.classList.contains("open");
+          saveSecState(st);
         });
       });
     }
