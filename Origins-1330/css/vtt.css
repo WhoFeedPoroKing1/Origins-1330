@@ -3383,3 +3383,7 @@ body:not(.is-dm) #musicYoutubeUrl {
   cursor: pointer;
   font-weight: 600;
 }
+
+.tif-note { font-size: 0.62rem; color: #8a8468; line-height: 1.3; margin: 0.1rem 0 0.2rem; }
+.tif-bag { grid-column: 1 / -1; max-height: 180px; overflow-y: auto; }
+.token-inv-float { width: min(440px, calc(100vw - 24px)) !important; }

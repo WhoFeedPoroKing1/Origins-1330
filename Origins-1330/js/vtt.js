@@ -1391,10 +1391,22 @@ function initVTT() {
         renderTokens();
         renderInspector();
         renderHP();
+        const clickTok = t;
+        const clickX = e.clientX;
+        const clickY = e.clientY;
+        const onTokUp = (ev) => {
+          window.removeEventListener("pointerup", onTokUp);
+          const moved = Math.hypot(ev.clientX - clickX, ev.clientY - clickY);
+          // Tıklama (sürükleme değil) → envanter paneli
+          if (moved < 8) {
+            try { openTokenInventory(clickTok); } catch (_) {}
+          }
+        };
+        window.addEventListener("pointerup", onTokUp);
         if (!canControlToken(t)) return;
         pushUndo();
         if (e.altKey) {
-          if (!isDm()) return; // inisiyatife ekleme DM
+          if (!isDm()) return;
           addTokenToInitiative(t);
           return;
         }
@@ -8795,11 +8807,17 @@ el.querySelectorAll(".init-row").forEach((row) => {
     html += '<div class="tif-grid">';
     slots.forEach((s) => {
       const list = itemsIn(s.id);
-      html += '<div class="tif-col"><div class="tif-col-h">' + s.label + '</div>';
+      html += '<div class="tif-col' + (s.id === "bag" ? " tif-bag" : "") + '"><div class="tif-col-h">' + s.label + " (" + list.length + ')</div>';
       if (!list.length) html += '<div class="tif-empty">Boş</div>';
       list.forEach(({ it, idx }) => {
+        const sub = it.notes
+          ? esc(String(it.notes).slice(0, 80))
+          : (it.kind === "weapon"
+            ? esc((it.damage || "") + (it.weaponType ? " · " + it.weaponType : ""))
+            : (it.kind === "armor" ? esc("Z" + (it.armorValue || 0)) : ""));
         html += '<div class="tif-item">' +
-          '<div class="tif-name">' + esc(it.name || "?") + '</div>' +
+          '<div class="tif-name">' + esc(it.name || "?") + (it.qty > 1 ? " ×" + it.qty : "") + '</div>' +
+          (sub ? '<div class="tif-note">' + sub + '</div>' : '') +
           '<select data-tif-move="' + idx + '"' + (canInv ? "" : " disabled") + '>' +
           slots.map((o) => '<option value="' + o.id + '"' + ((it.slot || "bag") === o.id ? " selected" : "") + '>' + o.label.replace(/^[^ ]+ /, "") + '</option>').join("") +
           '</select></div>';
