@@ -6,6 +6,7 @@
   <title>Origins — Karakter</title>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/inventory.css" />
   <style>
     .char-shared {
       background: var(--surface); border: 1px solid var(--border);
@@ -543,25 +544,10 @@
         <!-- Zar görünümü -->
         <div class="char-shared" id="diceStyleBox" style="margin-top:0.25rem">
           
-          <div class="eq-section">
-          <h2 class="eq-title">Envanter</h2>
-          <p class="eq-desc">Üstte takılı ekipman özeti · altta tüm eşyalar. Slot menüsünden Sağ el / Sol el / Zırh / Çanta seç.</p>
-          <div id="invList" class="inv-list"></div>
-          <div class="eq-actions">
-            <button type="button" class="btn btn-gold btn-sm" id="invAdd">+ Eşya ekle</button>
-          </div>
-          <div class="eq-tpl-label">Hazır şablonlar</div>
-          <div id="invTemplates" class="eq-templates">
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="0">Uzun kılıç</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="1">Büyük balta (2el)</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="2">Mızrak</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="3">Çekiç</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="4">Hançer</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="5">Kalkan</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="6">Hafif zırh</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="7">Zincir</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-tpl="8">Plate</button>
-          </div>
+          
+          <div class="eq-section" id="invMountWrap">
+            <div id="invRoot"></div>
+            <p class="eq-desc" style="margin-top:0.65rem;margin-bottom:0">Eşyalar karakter kaydıyla saklanır. Masada token’a tıklayınca aynı envanter açılır.</p>
           </div>
 
 <h2 style="font-family:var(--font-d);font-size:1rem;color:var(--gold);letter-spacing:0.05em;margin-bottom:0.85rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border)">
@@ -632,6 +618,7 @@
   </main>
   <footer class="footer"><div class="wrap"><p class="footer-logo">ORIGINS · 1330</p><p class="footer-sub">Alternatif Orta Çağ · masa RPG</p></div></footer>
   <script src="js/core.js"></script>
+  <script src="js/inventory.js"></script>
   <script src="js/character.js"></script>
   <script>document.addEventListener("DOMContentLoaded", initCharacters);</script>
 

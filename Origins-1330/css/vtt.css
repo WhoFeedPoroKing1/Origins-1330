@@ -3386,4 +3386,12 @@ body:not(.is-dm) #musicYoutubeUrl {
 
 .tif-note { font-size: 0.62rem; color: #8a8468; line-height: 1.3; margin: 0.1rem 0 0.2rem; }
 .tif-bag { grid-column: 1 / -1; max-height: 180px; overflow-y: auto; }
-.token-inv-float { width: min(440px, calc(100vw - 24px)) !important; }
+.token-inv-float {
+  width: min(520px, calc(100vw - 24px)) !important;
+  max-height: min(82vh, 680px) !important;
+  overflow: hidden !important;
+}
+.token-inv-float .oi-root { border: none; background: transparent; padding: 0.35rem; }
+.token-inv-float .oi-main { grid-template-columns: 170px 1fr; }
+.token-inv-float .oi-grid { max-height: 220px; }
+

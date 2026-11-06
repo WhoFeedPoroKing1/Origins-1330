@@ -2204,16 +2204,31 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
   }
 
   function getEquippedWeapon(tok) {
-    const main = findInvItem(tok, "mainhand");
-    const off = findInvItem(tok, "offhand");
-    if (main && main.kind === "weapon") return main;
-    if (off && off.kind === "weapon") return off;
+    const inv = getCharInventoryRaw(tok);
+    if (window.OriginsInventory) {
+      const w = OriginsInventory.getEquippedWeapon(inv);
+      if (w) return w;
+    }
+    // legacy slots on items
+    const items = inv.items || getCharInventory(tok);
+    const main = items.find((x) => x.slot === "mainhand" || (inv.equipment && inv.equipment.mainhand === x.id));
+    const off = items.find((x) => x.slot === "offhand" || (inv.equipment && inv.equipment.offhand === x.id));
+    if (main && (main.category === "weapon" || main.kind === "weapon" || main.damage)) return main;
+    if (off && (off.category === "weapon" || off.kind === "weapon" || off.damage)) return off;
     return null;
   }
 
   function getEquippedArmor(tok) {
-    const a = findInvItem(tok, "armor");
-    return a && a.kind === "armor" ? a : null;
+    const inv = getCharInventoryRaw(tok);
+    if (window.OriginsInventory) {
+      const a = OriginsInventory.getEquippedArmor(inv);
+      if (a) return a;
+    }
+    const items = inv.items || getCharInventory(tok);
+    return items.find((x) =>
+      x.slot === "armor" || x.category === "armor" || x.kind === "armor" ||
+      (inv.equipment && (inv.equipment.body === x.id || inv.equipment.head === x.id))
+    ) || null;
   }
 
   /** Token için etkili hasar formülü ve silah türü */
@@ -2272,29 +2287,66 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
     return Math.max(1, ac);
   }
 
-  function getCharInventory(tok) {
-    if (!tok) return [];
+  function getCharInventoryRaw(tok) {
+    if (!tok) return { items: [], equipment: {}, carryCapacity: 50 };
+    if (tok.inventory && typeof tok.inventory === "object" && !Array.isArray(tok.inventory)) {
+      return window.OriginsInventory ? OriginsInventory.normalizeInv(tok.inventory) : tok.inventory;
+    }
+    if (Array.isArray(tok.inventory) && tok.inventory.length) {
+      return window.OriginsInventory
+        ? OriginsInventory.normalizeInv({ items: tok.inventory })
+        : { items: tok.inventory, equipment: {}, carryCapacity: 50 };
+    }
     try {
       const roster = loadRoster();
       const ch = roster.find((c) => String(c.id) === String(tok.refId))
-        || roster.find((c) => c.name === tok.name || c.name === tok.owner);
-      if (ch && Array.isArray(ch.inventory)) return ch.inventory;
+        || roster.find((c) => c.name === tok.owner)
+        || roster.find((c) => c.name === tok.name && tok.form !== "ally");
+      if (ch && ch.inventory != null) {
+        const inv = window.OriginsInventory
+          ? OriginsInventory.normalizeInv(ch.inventory)
+          : (Array.isArray(ch.inventory)
+            ? { items: ch.inventory, equipment: {}, carryCapacity: 50 }
+            : ch.inventory);
+        tok.inventory = JSON.parse(JSON.stringify(inv));
+        return tok.inventory;
+      }
     } catch (_) {}
-    if (Array.isArray(tok.inventory)) return tok.inventory;
-    return [];
+    return { items: [], equipment: {}, carryCapacity: 50 };
   }
 
-  function setCharInventory(tok, items) {
+  function getCharInventory(tok) {
+    const raw = getCharInventoryRaw(tok);
+    if (Array.isArray(raw)) return raw;
+    return Array.isArray(raw.items) ? raw.items : [];
+  }
+
+  function setCharInventory(tok, itemsOrInv) {
     if (!tok) return;
-    tok.inventory = items;
+    let inv;
+    if (itemsOrInv && typeof itemsOrInv === "object" && !Array.isArray(itemsOrInv) && Array.isArray(itemsOrInv.items)) {
+      inv = itemsOrInv;
+    } else {
+      const prev = getCharInventoryRaw(tok);
+      inv = {
+        items: Array.isArray(itemsOrInv) ? itemsOrInv : (prev.items || []),
+        equipment: prev.equipment || {},
+        carryCapacity: prev.carryCapacity || 50,
+        personalStorage: prev.personalStorage || [],
+      };
+    }
+    if (window.OriginsInventory) inv = OriginsInventory.normalizeInv(inv);
+    tok.inventory = inv;
     try {
       const list = loadRoster();
-      const i = list.findIndex((c) => String(c.id) === String(tok.refId));
+      let i = list.findIndex((c) => String(c.id) === String(tok.refId));
+      if (i < 0 && tok.owner) i = list.findIndex((c) => c.name === tok.owner);
       if (i >= 0) {
-        list[i].inventory = items;
+        list[i].inventory = inv;
         saveRoster(list);
       }
     } catch (_) {}
+    try { saveTokens(); } catch (_) {}
   }
 
   function renderInspector() {
@@ -8791,101 +8843,30 @@ el.querySelectorAll(".init-row").forEach((row) => {
       panel.className = "token-inv-float";
       document.body.appendChild(panel);
     }
-    const canInv = isDm() || canEditToken(tok) || canControlToken(tok);
-    const items = (typeof getCharInventory === "function" ? getCharInventory(tok) : tok.inventory) || [];
-    const slots = [
-      { id: "mainhand", label: "⚔ Sağ el" },
-      { id: "offhand", label: "🛡 Sol el" },
-      { id: "armor", label: "🧥 Zırh" },
-      { id: "bag", label: "🎒 Çanta" },
-    ];
-    function itemsIn(slot) {
-      return items.map((it, idx) => ({ it, idx })).filter((x) => (x.it.slot || "bag") === slot);
-    }
-    let html = '<div class="tif-head"><span>' + esc(tok.name || "Token") + ' — Envanter</span>' +
-      '<button type="button" class="tif-close" id="tifClose">×</button></div>';
-    html += '<div class="tif-grid">';
-    slots.forEach((s) => {
-      const list = itemsIn(s.id);
-      html += '<div class="tif-col' + (s.id === "bag" ? " tif-bag" : "") + '"><div class="tif-col-h">' + s.label + " (" + list.length + ')</div>';
-      if (!list.length) html += '<div class="tif-empty">Boş</div>';
-      list.forEach(({ it, idx }) => {
-        const sub = it.notes
-          ? esc(String(it.notes).slice(0, 80))
-          : (it.kind === "weapon"
-            ? esc((it.damage || "") + (it.weaponType ? " · " + it.weaponType : ""))
-            : (it.kind === "armor" ? esc("Z" + (it.armorValue || 0)) : ""));
-        html += '<div class="tif-item">' +
-          '<div class="tif-name">' + esc(it.name || "?") + (it.qty > 1 ? " ×" + it.qty : "") + '</div>' +
-          (sub ? '<div class="tif-note">' + sub + '</div>' : '') +
-          '<select data-tif-move="' + idx + '"' + (canInv ? "" : " disabled") + '>' +
-          slots.map((o) => '<option value="' + o.id + '"' + ((it.slot || "bag") === o.id ? " selected" : "") + '>' + o.label.replace(/^[^ ]+ /, "") + '</option>').join("") +
-          '</select></div>';
-      });
-      html += '</div>';
-    });
-    html += '</div>';
-    if (canInv) {
-      html += '<div class="tif-add"><input id="tifName" placeholder="Yeni eşya" maxlength="40"/>' +
-        '<select id="tifSlot"><option value="bag">Çanta</option><option value="mainhand">Sağ</option><option value="offhand">Sol</option><option value="armor">Zırh</option></select>' +
-        '<button type="button" id="tifAdd">Ekle</button></div>';
-    }
-    panel.innerHTML = html;
     panel.style.display = "flex";
-    // position near center-right
-    panel.style.left = Math.min(window.innerWidth - 420, Math.max(12, window.innerWidth * 0.55)) + "px";
-    panel.style.top = "80px";
-
+    panel.style.flexDirection = "column";
+    panel.style.left = Math.min(window.innerWidth - 520, Math.max(12, window.innerWidth * 0.42)) + "px";
+    panel.style.top = "72px";
+    panel.style.width = "min(500px, calc(100vw - 24px))";
+    panel.style.maxHeight = "min(80vh, 640px)";
+    panel.innerHTML =
+      '<div class="tif-head"><span>' + esc(tok.name || "Token") + ' — Envanter</span>' +
+      '<button type="button" class="tif-close" id="tifClose">×</button></div>' +
+      '<div id="tifInvMount" style="overflow:auto;flex:1;padding:0.35rem"></div>';
     panel.querySelector("#tifClose")?.addEventListener("click", () => {
       panel.style.display = "none";
     });
-    panel.querySelectorAll("[data-tif-move]").forEach((sel) => {
-      sel.addEventListener("change", () => {
-        if (!canInv) return;
-        let list = (getCharInventory(tok) || []).map((x) => Object.assign({}, x));
-        const i = +sel.dataset.tifMove;
-        const slot = sel.value;
-        if (slot !== "bag") {
-          list = list.map((x, j) => j !== i && x.slot === slot ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
-        }
-        if (list[i]) {
-          if (slot === "offhand") {
-            const main = list.find((x) => x.slot === "mainhand" && x.twoHand);
-            if (main) {
-              alert("2 el silah sol eli kilitler.");
-              openTokenInventory(tok);
-              return;
-            }
-          }
-          list[i].slot = slot;
-          list[i].equipped = slot !== "bag";
-          if (slot === "mainhand" && list[i].twoHand) {
-            list = list.map((x, j) => j !== i && x.slot === "offhand" ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
-          }
-        }
-        setCharInventory(tok, list);
-        openTokenInventory(tok);
+    const inv = getCharInventoryRaw(tok);
+    if (window.OriginsInventory) {
+      OriginsInventory.mount("#tifInvMount", inv, function (data) {
+        setCharInventory(tok, data);
         try { renderShortSheet(tok); } catch (_) {}
-        try { renderInspector(); } catch (_) {}
+        try { scheduleSync(); } catch (_) {}
       });
-    });
-    panel.querySelector("#tifAdd")?.addEventListener("click", () => {
-      const name = (panel.querySelector("#tifName")?.value || "").trim();
-      if (!name) return;
-      const slot = panel.querySelector("#tifSlot")?.value || "bag";
-      let list = (getCharInventory(tok) || []).map((x) => Object.assign({}, x));
-      if (slot !== "bag") {
-        list = list.map((x) => x.slot === slot ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
-      }
-      list.push({
-        id: "i_" + Math.random().toString(36).slice(2, 9),
-        name, qty: 1, notes: "", slot, kind: "gear",
-        equipped: slot !== "bag",
-      });
-      setCharInventory(tok, list);
-      openTokenInventory(tok);
-      try { renderInspector(); } catch (_) {}
-    });
+    } else {
+      panel.querySelector("#tifInvMount").innerHTML =
+        '<p style="color:#8a8468;font-size:0.8rem;padding:1rem">Envanter modülü yüklenemedi.</p>';
+    }
   }
   window.__originsOpenTokenInv = openTokenInventory;
 

@@ -432,7 +432,12 @@ function initCharacters() {
       type: val("hType", ""),
       tokenColor: val("hTokColor", "#d4af37") || "#d4af37",
       tokenShape: val("hTokShape", "circle") || "circle",
-      inventory: readInventoryFromDom(),
+      inventory: (function () {
+        if (window.OriginsInventory && typeof OriginsInventory.getData === "function") {
+          try { return OriginsInventory.getData(); } catch (_) {}
+        }
+        return readInventoryFromDom();
+      })(),
       diceStyle: {
         color: val("dColor", "#d4af37") || "#d4af37",
         color2: val("dColor2", "#1a1520") || "#1a1520",
@@ -499,7 +504,15 @@ function initCharacters() {
     setVal("hMind", hu.mind || 3);
     setVal("hTokColor", hu.tokenColor || c.tokenColor || "#d4af37");
     try {
-      renderInventoryEditor(c.inventory || hu.inventory || []);
+      (function () {
+        let invData = c.inventory || hu.inventory || { items: [], equipment: {}, carryCapacity: 50 };
+        if (window.OriginsInventory) {
+          invData = OriginsInventory.normalizeInv(invData);
+          OriginsInventory.mount("#invRoot", invData, function () {});
+        } else {
+          renderInventoryEditor(Array.isArray(invData) ? invData : (invData.items || []));
+        }
+      })();
     } catch (_) {}
     if (document.getElementById("hTokShape")) document.getElementById("hTokShape").value = hu.tokenShape || c.tokenShape || "circle";
     setVal("hCtrl", hu.ctrl || 3);
@@ -744,7 +757,9 @@ function initCharacters() {
   document.getElementById("dicePreviewCube")?.addEventListener("click", playDicePreviewAnim);
   updateDicePreview();
 
-  document.getElementById("invAdd")?.addEventListener("click", () => {
+  if (window.OriginsInventory) {
+    // managed by inventory.js
+  } else document.getElementById("invAdd")?.addEventListener("click", () => {
     const box = document.getElementById("invList");
     let cur = [];
     try {
@@ -774,7 +789,11 @@ function initCharacters() {
     renderInventoryEditor(cur);
   });
   try {
-    if (document.getElementById("invList") && !document.querySelector("#invList .inv2-row, #invList .inv2-empty")) {
+    if (window.OriginsInventory && document.getElementById("invRoot")) {
+      if (!document.querySelector("#invRoot .oi-root")) {
+        OriginsInventory.mount("#invRoot", { items: [], equipment: {}, carryCapacity: 50 }, function () {});
+      }
+    } else if (document.getElementById("invList") && !document.querySelector("#invList .inv2-row, #invList .inv2-empty")) {
       renderInventoryEditor([]);
     }
   } catch (_) {}
