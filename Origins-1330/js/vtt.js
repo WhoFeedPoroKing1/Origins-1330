@@ -2351,34 +2351,33 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
       <select id="tokSize" style="width:100%;margin-bottom:0.35rem;background:#050507;border:1px solid #252532;color:#f2efe6;padding:0.3rem;border-radius:4px;font-size:0.75rem">
         ${TOKEN_SIZE_STEPS.map((s) => `<option value="${s}" ${normalizeTokenSize(t.size) === s ? "selected" : ""}>${TOKEN_SIZE_LABELS[s] || s}</option>`).join("")}
       </select>
-      <div style="font-size:0.65rem;color:#d4af37;margin:0.5rem 0 0.25rem">Envanter</div>
-      <p style="font-size:0.6rem;color:#6b665c;margin:0 0 0.3rem;line-height:1.35">Karakter sayfasında oluştur. Burada slot ile <strong>tak / çıkar</strong>.</p>
-      <div id="tokInvList" style="font-size:0.72rem;max-height:180px;overflow-y:auto;overflow-x:hidden;margin-bottom:0.35rem;width:100%"></div>
-      <details style="margin-bottom:0.4rem;font-size:0.68rem;color:#a8a396">
-        <summary style="cursor:pointer;color:#d4af37">Hızlı eşya ekle</summary>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-top:0.3rem">
-          <input type="text" id="tokInvName" placeholder="Ad" maxlength="40" style="grid-column:1/-1;background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
-          <select id="tokInvSlot" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+      <div class="insp-inv">
+        <div class="insp-inv-head">Envanter</div>
+        <p class="insp-inv-hint">Slot ile tak / çıkar. Detaylı düzenleme: Karakter sayfası.</p>
+        <div id="tokInvList" class="insp-inv-list"></div>
+        <div class="insp-inv-add">
+          <input type="text" id="tokInvName" placeholder="Eşya adı" maxlength="40" />
+          <select id="tokInvSlot">
             <option value="bag">Çanta</option>
             <option value="mainhand">Sağ el</option>
             <option value="offhand">Sol el</option>
             <option value="armor">Zırh</option>
           </select>
-          <select id="tokInvKind" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+          <select id="tokInvKind">
             <option value="gear">Eşya</option>
             <option value="weapon">Silah</option>
             <option value="armor">Zırh</option>
           </select>
-          <input type="text" id="tokInvDmg" placeholder="1d8" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
-          <select id="tokInvWtype" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem">
+          <input type="text" id="tokInvDmg" placeholder="1d8" title="Silah hasarı" />
+          <select id="tokInvWtype" title="Silah türü">
             <option value="slashing">Kesici</option>
             <option value="piercing">Saplama</option>
             <option value="bludgeoning">Ezici</option>
           </select>
-          <input type="number" id="tokInvAval" placeholder="Zırh puan" style="background:#050507;border:1px solid #252532;color:#eee;padding:0.25rem;border-radius:4px;font-size:0.7rem" />
-          <button type="button" class="tbtn" id="tokInvAdd" style="grid-column:1/-1;font-size:0.68rem">Ekle</button>
+          <input type="number" id="tokInvAval" placeholder="Zırh" title="Zırh puanı" />
+          <button type="button" class="tbtn" id="tokInvAdd">+ Ekle</button>
         </div>
-      </details>
+      </div>
       <button type="button" class="tbtn" id="tokDel" style="width:100%;margin-top:0.4rem;color:#e05a5a;border-color:rgba(224,90,90,0.4)">Token sil</button>
     </div>`;
     const allowEdit = canEditToken(t) || isDm();
@@ -2540,16 +2539,15 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
       scheduleSync();
     });
 
-    // Envanter: karakterden gelir; masada tak / çıkar
+    // Envanter paneli
     (function wireTokInv() {
       const invBox = document.getElementById("tokInvList");
       if (!invBox) return;
       const canInv = isDm() || canEditToken(t) || canControlToken(t);
 
       function setItemSlot(items, idx, newSlot) {
-        items = items.map((x, i) => Object.assign({}, x));
+        items = items.map((x) => Object.assign({}, x));
         if (newSlot !== "bag") {
-          // Aynı slotta başka eşya varsa çantaya
           items.forEach((x, i) => {
             if (i !== idx && x.slot === newSlot) {
               x.slot = "bag";
@@ -2557,41 +2555,32 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
             }
           });
         }
-        if (items[idx]) {
-          items[idx].slot = newSlot;
-          items[idx].equipped = newSlot !== "bag";
-          // 2 el silah: offhand boşalt
-          if (newSlot === "mainhand" && items[idx].twoHand) {
-            let freed = false;
-            items.forEach((x, i) => {
-              if (i !== idx && x.slot === "offhand") {
-                x.slot = "bag";
-                x.equipped = false;
-                freed = true;
-              }
-            });
-            if (freed) {
-              try { chatAdd("2 el silah: sol el boşaltıldı", "sys"); } catch (_) {}
-            } else {
-              try { chatAdd("2 el silah takıldı — sol el kilitli", "sys"); } catch (_) {}
-            }
+        if (!items[idx]) return items;
+        if (newSlot === "offhand") {
+          const main = items.find((x) => x.slot === "mainhand" && x.twoHand);
+          if (main) {
+            try { alert("Sağ elde 2 el silah var (" + main.name + "). Sol el kilitli."); } catch (_) {}
+            return getCharInventory(t);
           }
-          // Sol ele takarken sağda 2el varsa engelle
-          if (newSlot === "offhand") {
-            const main = items.find((x) => x.slot === "mainhand" && x.twoHand);
-            if (main) {
-              try { alert("Sağ elde 2 el silah var (" + main.name + "). Sol el kullanılamaz."); } catch (_) {}
-              return getCharInventory(t); // no change
+        }
+        items[idx].slot = newSlot;
+        items[idx].equipped = newSlot !== "bag";
+        if (newSlot === "mainhand" && items[idx].twoHand) {
+          items.forEach((x, i) => {
+            if (i !== idx && x.slot === "offhand") {
+              x.slot = "bag";
+              x.equipped = false;
             }
-          }
+          });
+          try { chatAdd("2 el silah: sol el boşaltıldı", "sys"); } catch (_) {}
         }
         return items;
       }
 
       function paint() {
-        const items = getCharInventory(t);
+        const items = getCharInventory(t) || [];
         if (!items.length) {
-          invBox.innerHTML = '<div style="color:#6b665c;font-size:0.68rem">Envanter boş — Karakter sayfasından eşya ekle.</div>';
+          invBox.innerHTML = '<div class="insp-inv-empty">Boş — aşağıdan ekle veya Karakter sayfasından yükle</div>';
           return;
         }
         const slotOpts = [
@@ -2601,27 +2590,27 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
           ["armor", "Zırh"],
         ];
         invBox.innerHTML = items.map((it, idx) => {
-          const extra = it.kind === "weapon"
-            ? ((it.damage || "") + (it.weaponType ? " · " + it.weaponType : ""))
-            : (it.kind === "armor"
-              ? ("Z" + (it.armorValue || 0) + " AC+" + (it.acBonus || 0) + (it.speedPenalty ? " Hız-" + it.speedPenalty : ""))
-              : (it.notes || ""));
+          let meta = "";
+          if (it.kind === "weapon") {
+            meta = (it.damage || "1d6") + (it.damageBonus ? "+" + it.damageBonus : "") +
+              (it.weaponType ? " · " + it.weaponType : "") + (it.twoHand ? " · 2el" : "");
+          } else if (it.kind === "armor") {
+            meta = (it.armorType || "") + " Z" + (it.armorValue || 0) +
+              " AC+" + (it.acBonus || 0) + (it.speedPenalty ? " hız−" + it.speedPenalty : "");
+          } else if (it.notes) meta = it.notes;
           const opts = slotOpts.map(([v, lab]) =>
-            `<option value="${v}" ${(it.slot || "bag") === v ? "selected" : ""}>${lab}</option>`
+            '<option value="' + v + '"' + ((it.slot || "bag") === v ? " selected" : "") + ">" + lab + "</option>"
           ).join("");
-          return `<div style="display:grid;grid-template-columns:1fr auto;gap:0.25rem;align-items:center;margin-bottom:0.35rem;padding:0.3rem;background:#0a0a10;border:1px solid #252532;border-radius:5px">
-            <div style="min-width:0">
-              <div style="font-weight:600;font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.name)} <span style="color:#6b665c;font-weight:400">×${it.qty || 1}</span></div>
-              <div style="font-size:0.62rem;color:#6b665c">${esc(extra || (it.kind || "eşya"))}</div>
-            </div>
-            <div style="display:flex;gap:0.2rem;align-items:center">
-              <select data-inv-slot="${idx}" ${canInv ? "" : "disabled"} title="Tak / çıkar"
-                style="background:#050507;border:1px solid #252532;color:#eee;padding:0.2rem;border-radius:4px;font-size:0.65rem;max-width:5.5rem">
-                ${opts}
-              </select>
-              ${canInv ? `<button type="button" data-inv-del="${idx}" title="Sil" style="background:transparent;border:none;color:#e05a5a;cursor:pointer;font-size:0.9rem">×</button>` : ""}
-            </div>
-          </div>`;
+          return '<div class="insp-inv-row">' +
+            '<div class="insp-inv-info">' +
+              '<div class="insp-inv-name">' + esc(it.name || "?") +
+                (it.qty > 1 ? ' <span class="insp-inv-qty">×' + it.qty + '</span>' : '') +
+              '</div>' +
+              (meta ? '<div class="insp-inv-meta">' + esc(meta) + '</div>' : '') +
+            '</div>' +
+            '<select class="insp-inv-slot" data-inv-slot="' + idx + '"' + (canInv ? '' : ' disabled') + '>' + opts + '</select>' +
+            (canInv ? '<button type="button" class="insp-inv-del" data-inv-del="' + idx + '" title="Sil">×</button>' : '') +
+          '</div>';
         }).join("");
 
         invBox.querySelectorAll("[data-inv-slot]").forEach((sel) => {
@@ -2630,11 +2619,6 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
             let items = getCharInventory(t);
             items = setItemSlot(items, +sel.dataset.invSlot, sel.value);
             setCharInventory(t, items);
-            // Token hasar / AC ipucu
-            try {
-              const w = resolveAttackDamage(t);
-              if (w && w.formula) t.damage = w.formula.split("+")[0].replace(/[+-]\d+$/, "") || t.damage;
-            } catch (_) {}
             paint();
             try { renderShortSheet(t); } catch (_) {}
             try { scheduleSync(); } catch (_) {}
@@ -2657,20 +2641,24 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
       const addBtn = document.getElementById("tokInvAdd");
       if (addBtn) {
         addBtn.disabled = !canInv;
-        addBtn.addEventListener("click", () => {
+        addBtn.onclick = () => {
           if (!canInv) return;
           const name = (document.getElementById("tokInvName")?.value || "").trim();
-          if (!name) return alert("Eşya adı yaz.");
+          if (!name) { alert("Eşya adı yaz."); return; }
           const slot = document.getElementById("tokInvSlot")?.value || "bag";
           const kind = document.getElementById("tokInvKind")?.value || "gear";
-          let items = getCharInventory(t);
+          let items = (getCharInventory(t) || []).map((x) => Object.assign({}, x));
           if (slot !== "bag") {
             items = items.map((x) => x.slot === slot ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
           }
-          items.push({
-            id: "i_" + Math.random().toString(36).slice(2, 8),
-            name, qty: 1, notes: "", slot, kind,
-            damage: kind === "weapon" ? ((document.getElementById("tokInvDmg")?.value || "1d6").trim()) : "",
+          const item = {
+            id: "i_" + Math.random().toString(36).slice(2, 9),
+            name: name,
+            qty: 1,
+            notes: "",
+            slot: slot,
+            kind: kind,
+            damage: kind === "weapon" ? ((document.getElementById("tokInvDmg")?.value || "1d6").trim() || "1d6") : "",
             damageBonus: 0,
             weaponType: kind === "weapon" ? (document.getElementById("tokInvWtype")?.value || "slashing") : "",
             armorType: kind === "armor" ? "chain" : "",
@@ -2679,12 +2667,14 @@ document.getElementById("clearRuler")?.addEventListener("click", () => {
             speedPenalty: 0,
             twoHand: false,
             equipped: slot !== "bag",
-          });
+          };
+          items.push(item);
           setCharInventory(t, items);
-          if (document.getElementById("tokInvName")) document.getElementById("tokInvName").value = "";
+          const nameEl = document.getElementById("tokInvName");
+          if (nameEl) nameEl.value = "";
           paint();
           try { renderShortSheet(t); } catch (_) {}
-        });
+        };
       }
     })();
 

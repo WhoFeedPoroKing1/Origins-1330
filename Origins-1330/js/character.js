@@ -608,8 +608,28 @@ function initCharacters() {
   updateDicePreview();
 
   document.getElementById("invAdd")?.addEventListener("click", () => {
-    const cur = readInventoryFromDom();
-    cur.push({ id: invUid(), name: "", qty: 1, notes: "", slot: "bag", kind: "gear", equipped: false });
+    // Boş isimleri de tut (editörden silinmesin)
+    const cur = [];
+    document.querySelectorAll("#invList .inv-card").forEach((row) => {
+      cur.push({
+        id: row.dataset.invId || invUid(),
+        name: row.querySelector("[data-inv=name]")?.value || "",
+        qty: parseInt(row.querySelector("[data-inv=qty]")?.value, 10) || 1,
+        notes: row.querySelector("[data-inv=notes]")?.value || "",
+        slot: row.querySelector("[data-inv=slot]")?.value || "bag",
+        kind: row.querySelector("[data-inv=kind]")?.value || "gear",
+        damage: row.querySelector("[data-inv=dmg]")?.value || "1d6",
+        damageBonus: parseInt(row.querySelector("[data-inv=dbon]")?.value, 10) || 0,
+        weaponType: row.querySelector("[data-inv=wtype]")?.value || "slashing",
+        twoHand: !!row.querySelector("[data-inv=2h]")?.checked,
+        armorType: row.querySelector("[data-inv=atype]")?.value || "light",
+        armorValue: parseInt(row.querySelector("[data-inv=aval]")?.value, 10) || 0,
+        acBonus: parseInt(row.querySelector("[data-inv=ac]")?.value, 10) || 0,
+        speedPenalty: parseInt(row.querySelector("[data-inv=spd]")?.value, 10) || 0,
+        equipped: false,
+      });
+    });
+    cur.push({ id: invUid(), name: "Yeni eşya", qty: 1, notes: "", slot: "bag", kind: "gear", equipped: false });
     renderInventoryEditor(cur);
   });
   document.getElementById("invTemplates")?.addEventListener("click", (e) => {
@@ -619,11 +639,11 @@ function initCharacters() {
     const tpl = ITEM_TEMPLATES[i];
     if (!tpl) return;
     const cur = readInventoryFromDom();
-    cur.push(Object.assign({ id: invUid(), qty: 1, notes: "", equipped: false }, tpl));
+    cur.push(Object.assign({ id: invUid(), qty: 1, notes: tpl.notes || "", equipped: false }, tpl));
     renderInventoryEditor(cur);
   });
   try {
-    if (document.getElementById("invList") && !document.querySelector("#invList .inv-row")) {
+    if (document.getElementById("invList") && !document.querySelector("#invList .inv-card")) {
       renderInventoryEditor([]);
     }
   } catch (_) {}

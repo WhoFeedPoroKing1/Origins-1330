@@ -2703,3 +2703,184 @@ body:not(.is-dm) #musicYoutubeUrl {
 .ss-stats { flex-wrap: wrap; }
 #tokInvList, #mapLibBox, #combatLog, #chatLog { max-width: 100%; overflow-x: hidden; }
 .tbtn { white-space: nowrap; }
+
+/* —— Kısa sheet + envanter paneli (v3) —— */
+.short-sheet { margin: 0 0 0.5rem; max-width: 100%; overflow: hidden; }
+.ss-empty { font-size: 0.7rem; color: #6b665c; padding: 0.35rem 0; }
+.ss-card {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  background: #0b0b12;
+  border: 1px solid #2a2a38;
+  border-radius: 8px;
+  padding: 0.5rem;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.ss-port {
+  width: 48px; height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #333;
+  flex-shrink: 0;
+  background: #15151e;
+}
+.ss-port.ss-ph {
+  display: flex; align-items: center; justify-content: center;
+  font-family: Cinzel, serif; font-weight: 700; color: #d4af37; font-size: 0.8rem;
+}
+.ss-body { flex: 1; min-width: 0; overflow: hidden; }
+.ss-name {
+  font-weight: 700; font-size: 0.8rem; color: #f2efe6;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ss-sub {
+  font-size: 0.62rem; color: #6b665c;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 0.2rem;
+}
+.ss-hpbar {
+  height: 5px; background: #1a1a22; border-radius: 3px;
+  overflow: hidden; margin-bottom: 0.3rem;
+}
+.ss-hpbar > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, #e05a5a, #d4af37); border-radius: 3px;
+}
+.ss-stats {
+  display: flex; flex-wrap: wrap; gap: 0.2rem 0.45rem;
+  font-size: 0.65rem; color: #c8c2b4;
+}
+.ss-stats span {
+  background: #12121a; border: 1px solid #252532;
+  border-radius: 4px; padding: 0.1rem 0.3rem;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.ss-stats small { color: #6b665c; font-size: 0.58rem; margin-left: 0.15rem; }
+.ss-eq {
+  margin-top: 0.25rem; font-size: 0.62rem; color: #a8a396;
+  line-height: 1.35; word-break: break-word;
+}
+.ss-st { margin-top: 0.25rem; display: flex; flex-wrap: wrap; gap: 0.2rem; }
+.ss-st span {
+  background: #15151e; border: 1px solid #2a2a35;
+  border-radius: 4px; padding: 0.05rem 0.28rem; font-size: 0.7rem;
+}
+
+.insp { max-width: 100%; overflow-x: hidden; box-sizing: border-box; }
+.insp > div:first-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.insp label, .insp input, .insp select, .insp textarea {
+  max-width: 100%; box-sizing: border-box;
+}
+.orb-row {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  max-width: 100%;
+}
+.orb-row label { min-width: 0; }
+.orb-row input { width: 100%; }
+
+.insp-inv {
+  margin: 0.5rem 0 0.4rem;
+  padding: 0.45rem;
+  background: #0a0a10;
+  border: 1px solid #252532;
+  border-radius: 8px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.insp-inv-head {
+  font-size: 0.72rem; font-weight: 600; color: #d4af37;
+  margin-bottom: 0.2rem;
+}
+.insp-inv-hint {
+  font-size: 0.6rem; color: #6b665c; margin: 0 0 0.4rem; line-height: 1.35;
+}
+.insp-inv-list {
+  max-height: 180px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-bottom: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.insp-inv-empty {
+  font-size: 0.65rem; color: #6b665c; padding: 0.35rem 0;
+}
+.insp-inv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.8rem 1.4rem;
+  gap: 0.25rem;
+  align-items: center;
+  padding: 0.35rem;
+  background: #0e0e14;
+  border: 1px solid #1e1e28;
+  border-radius: 6px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.insp-inv-info { min-width: 0; overflow: hidden; }
+.insp-inv-name {
+  font-size: 0.72rem; font-weight: 600; color: #eee;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.insp-inv-qty { color: #6b665c; font-weight: 400; }
+.insp-inv-meta {
+  font-size: 0.58rem; color: #6b665c;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.insp-inv-slot {
+  width: 100%;
+  background: #050507;
+  border: 1px solid #252532;
+  color: #eee;
+  border-radius: 4px;
+  padding: 0.2rem;
+  font-size: 0.62rem;
+}
+.insp-inv-del {
+  background: transparent; border: none; color: #e05a5a;
+  cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 0;
+}
+.insp-inv-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+}
+.insp-inv-add input,
+.insp-inv-add select,
+.insp-inv-add button {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: #050507;
+  border: 1px solid #252532;
+  color: #eee;
+  border-radius: 4px;
+  padding: 0.3rem;
+  font-size: 0.68rem;
+}
+.insp-inv-add #tokInvName { grid-column: 1 / -1; }
+.insp-inv-add #tokInvAdd {
+  grid-column: 1 / -1;
+  background: #1a1520;
+  border-color: #d4af37;
+  color: #d4af37;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.vtt-side {
+  overflow-x: hidden !important;
+  word-break: break-word;
+}
+.tokenInspector, #tokenInspector {
+  max-width: 100%;
+  overflow-x: hidden;
+}
