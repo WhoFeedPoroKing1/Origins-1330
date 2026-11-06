@@ -1,5 +1,5 @@
 /* World map + draw layer */
-.world-page { padding-top: 58px; min-height: 100vh; padding-bottom: 3rem; }
+.world-page { padding-top: calc(var(--header-h, 58px) + 1.25rem); min-height: 100vh; padding-bottom: 3rem; overflow-x: hidden; }
 .world-toolbar {
   display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;
   justify-content: center; margin-bottom: 1rem;

@@ -6869,52 +6869,83 @@ el.querySelectorAll(".init-row").forEach((row) => {
 
 
 
-  // Sidebar resize
+  // Sidebar resize + collapse
   (function sideResize() {
     const main = document.querySelector(".vtt-main");
-    const left = document.getElementById("sideLeft");
-    const right = document.getElementById("sideRight");
+    const leftEl = document.getElementById("sideLeft");
+    const rightEl = document.getElementById("sideRight");
     if (!main) return;
-    let leftW = parseInt(localStorage.getItem("origins_side_l") || "220", 10);
-    let rightW = parseInt(localStorage.getItem("origins_side_r") || "250", 10);
-    main.style.setProperty("--side-left", leftW + "px");
-    main.style.setProperty("--side-right", rightW + "px");
+    const MIN = 160, MAX = 520, COLLAPSED = 28;
+    let leftW = parseInt(localStorage.getItem("origins_side_l") || "250", 10);
+    let rightW = parseInt(localStorage.getItem("origins_side_r") || "280", 10);
+    let leftC = localStorage.getItem("origins_side_l_c") === "1";
+    let rightC = localStorage.getItem("origins_side_r_c") === "1";
+    if (!Number.isFinite(leftW)) leftW = 250;
+    if (!Number.isFinite(rightW)) rightW = 280;
+    leftW = Math.max(MIN, Math.min(MAX, leftW));
+    rightW = Math.max(MIN, Math.min(MAX, rightW));
+
+    function persist() {
+      try {
+        localStorage.setItem("origins_side_l", String(leftW));
+        localStorage.setItem("origins_side_r", String(rightW));
+        localStorage.setItem("origins_side_l_c", leftC ? "1" : "0");
+        localStorage.setItem("origins_side_r_c", rightC ? "1" : "0");
+      } catch (_) {}
+    }
+    function apply() {
+      main.style.setProperty("--side-left", (leftC ? COLLAPSED : leftW) + "px");
+      main.style.setProperty("--side-right", (rightC ? COLLAPSED : rightW) + "px");
+      leftEl && leftEl.classList.toggle("collapsed", leftC);
+      rightEl && rightEl.classList.toggle("collapsed", rightC);
+      const tl = document.getElementById("toggleLeft");
+      const tr = document.getElementById("toggleRight");
+      if (tl) tl.textContent = leftC ? "›" : "‹";
+      if (tr) tr.textContent = rightC ? "‹" : "›";
+      if (typeof sizeCanvases === "function") sizeCanvases();
+    }
+    function isNarrow() { return window.innerWidth <= 860; }
 
     function drag(handle, isLeft) {
       if (!handle) return;
       handle.addEventListener("pointerdown", (e) => {
         e.preventDefault();
+        handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
         handle.classList.add("dragging");
-        const startX = e.clientX;
+        const start = isNarrow() ? e.clientY : e.clientX;
+        if (isLeft) leftC = false; else rightC = false;
         const startW = isLeft ? leftW : rightW;
         const onMove = (ev) => {
-          const dx = ev.clientX - startX;
-          let w = isLeft ? startW + dx : startW - dx;
-          w = Math.max(140, Math.min(420, w));
-          if (isLeft) {
-            leftW = w;
-            main.style.setProperty("--side-left", w + "px");
-          } else {
-            rightW = w;
-            main.style.setProperty("--side-right", w + "px");
-          }
-          sizeCanvases();
+          const cur = isNarrow() ? ev.clientY : ev.clientX;
+          const d = cur - start;
+          let w = isLeft ? startW + d : startW - d;
+          w = Math.max(MIN, Math.min(MAX, w));
+          if (isLeft) leftW = w; else rightW = w;
+          apply();
         };
         const onUp = () => {
           handle.classList.remove("dragging");
           window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerup", onUp);
-          try {
-            localStorage.setItem("origins_side_l", String(leftW));
-            localStorage.setItem("origins_side_r", String(rightW));
-          } catch (_) {}
+          persist();
         };
         window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerup", onUp);
       });
+      handle.addEventListener("dblclick", () => {
+        if (isLeft) leftC = !leftC; else rightC = !rightC;
+        apply(); persist();
+      });
     }
     drag(document.getElementById("resizeLeft"), true);
     drag(document.getElementById("resizeRight"), false);
+    document.getElementById("toggleLeft")?.addEventListener("click", () => {
+      leftC = !leftC; apply(); persist();
+    });
+    document.getElementById("toggleRight")?.addEventListener("click", () => {
+      rightC = !rightC; apply(); persist();
+    });
+    apply();
   })();
 
 

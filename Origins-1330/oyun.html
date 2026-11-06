@@ -82,7 +82,8 @@
     </div>
 
     <div class="vtt-main">
-      <aside class="vtt-side" id="sideLeft"><div class="side-resizer" id="resizeLeft" title="Sürükle"></div>
+      <aside class="vtt-side" id="sideLeft">
+        <button type="button" class="side-toggle" id="toggleLeft" title="Sol paneli küçült / büyüt">‹</button>
         <h3>Sesler (YouTube)</h3>
         <div class="sfx-panel" id="sfxPanel">
           <p style="font-size:0.62rem;color:#6b665c;line-height:1.35;margin:0 0 0.4rem">
@@ -216,6 +217,7 @@
           · Saldırı DC yerine hedef AC kullanılır · Kritik = 2× hasar
         </p>
       </aside>
+      <div class="side-resizer" id="resizeLeft" title="Sürükleyerek genişlet / daralt · çift tık: kapat"></div>
 
       <div class="vtt-board" id="vttBoard">
         <div class="atm-overlay" id="atmOverlay" aria-hidden="true"></div>
@@ -264,7 +266,9 @@
         </div>
       </div>
 
-      <aside class="vtt-side right" id="sideRight"><div class="side-resizer left" id="resizeRight" title="Sürükle"></div>
+      <div class="side-resizer" id="resizeRight" title="Sürükleyerek genişlet / daralt · çift tık: kapat"></div>
+      <aside class="vtt-side right" id="sideRight">
+        <button type="button" class="side-toggle" id="toggleRight" title="Sağ paneli küçült / büyüt">›</button>
         <h3>Sahneler / Map · DM</h3>
         <div id="mapDmGate" style="font-size:0.72rem;color:#6b665c;margin-bottom:0.5rem">DM girişi gerekli</div>
         <div id="mapDmControls" style="display:none">
