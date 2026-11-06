@@ -6869,83 +6869,52 @@ el.querySelectorAll(".init-row").forEach((row) => {
 
 
 
-  // Sidebar resize + collapse
+  // Sidebar resize
   (function sideResize() {
     const main = document.querySelector(".vtt-main");
-    const leftEl = document.getElementById("sideLeft");
-    const rightEl = document.getElementById("sideRight");
+    const left = document.getElementById("sideLeft");
+    const right = document.getElementById("sideRight");
     if (!main) return;
-    const MIN = 160, MAX = 520, COLLAPSED = 28;
-    let leftW = parseInt(localStorage.getItem("origins_side_l") || "250", 10);
-    let rightW = parseInt(localStorage.getItem("origins_side_r") || "280", 10);
-    let leftC = localStorage.getItem("origins_side_l_c") === "1";
-    let rightC = localStorage.getItem("origins_side_r_c") === "1";
-    if (!Number.isFinite(leftW)) leftW = 250;
-    if (!Number.isFinite(rightW)) rightW = 280;
-    leftW = Math.max(MIN, Math.min(MAX, leftW));
-    rightW = Math.max(MIN, Math.min(MAX, rightW));
-
-    function persist() {
-      try {
-        localStorage.setItem("origins_side_l", String(leftW));
-        localStorage.setItem("origins_side_r", String(rightW));
-        localStorage.setItem("origins_side_l_c", leftC ? "1" : "0");
-        localStorage.setItem("origins_side_r_c", rightC ? "1" : "0");
-      } catch (_) {}
-    }
-    function apply() {
-      main.style.setProperty("--side-left", (leftC ? COLLAPSED : leftW) + "px");
-      main.style.setProperty("--side-right", (rightC ? COLLAPSED : rightW) + "px");
-      leftEl && leftEl.classList.toggle("collapsed", leftC);
-      rightEl && rightEl.classList.toggle("collapsed", rightC);
-      const tl = document.getElementById("toggleLeft");
-      const tr = document.getElementById("toggleRight");
-      if (tl) tl.textContent = leftC ? "›" : "‹";
-      if (tr) tr.textContent = rightC ? "‹" : "›";
-      if (typeof sizeCanvases === "function") sizeCanvases();
-    }
-    function isNarrow() { return window.innerWidth <= 860; }
+    let leftW = parseInt(localStorage.getItem("origins_side_l") || "220", 10);
+    let rightW = parseInt(localStorage.getItem("origins_side_r") || "250", 10);
+    main.style.setProperty("--side-left", leftW + "px");
+    main.style.setProperty("--side-right", rightW + "px");
 
     function drag(handle, isLeft) {
       if (!handle) return;
       handle.addEventListener("pointerdown", (e) => {
         e.preventDefault();
-        handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
         handle.classList.add("dragging");
-        const start = isNarrow() ? e.clientY : e.clientX;
-        if (isLeft) leftC = false; else rightC = false;
+        const startX = e.clientX;
         const startW = isLeft ? leftW : rightW;
         const onMove = (ev) => {
-          const cur = isNarrow() ? ev.clientY : ev.clientX;
-          const d = cur - start;
-          let w = isLeft ? startW + d : startW - d;
-          w = Math.max(MIN, Math.min(MAX, w));
-          if (isLeft) leftW = w; else rightW = w;
-          apply();
+          const dx = ev.clientX - startX;
+          let w = isLeft ? startW + dx : startW - dx;
+          w = Math.max(140, Math.min(420, w));
+          if (isLeft) {
+            leftW = w;
+            main.style.setProperty("--side-left", w + "px");
+          } else {
+            rightW = w;
+            main.style.setProperty("--side-right", w + "px");
+          }
+          sizeCanvases();
         };
         const onUp = () => {
           handle.classList.remove("dragging");
           window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerup", onUp);
-          persist();
+          try {
+            localStorage.setItem("origins_side_l", String(leftW));
+            localStorage.setItem("origins_side_r", String(rightW));
+          } catch (_) {}
         };
         window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerup", onUp);
       });
-      handle.addEventListener("dblclick", () => {
-        if (isLeft) leftC = !leftC; else rightC = !rightC;
-        apply(); persist();
-      });
     }
     drag(document.getElementById("resizeLeft"), true);
     drag(document.getElementById("resizeRight"), false);
-    document.getElementById("toggleLeft")?.addEventListener("click", () => {
-      leftC = !leftC; apply(); persist();
-    });
-    document.getElementById("toggleRight")?.addEventListener("click", () => {
-      rightC = !rightC; apply(); persist();
-    });
-    apply();
   })();
 
 
@@ -8531,7 +8500,12 @@ el.querySelectorAll(".init-row").forEach((row) => {
       const tk = tokens.find((x) => x.id === ctxTokId);
       hideTokMenu();
       if (!tk) return;
-      if (act === "select") {
+      if (act === "inventory") {
+        selectedId = tk.id;
+        renderTokens();
+        renderInspector();
+        try { openTokenInventory(tk); } catch (err) { console.warn(err); }
+      } else if (act === "select") {
         selectedId = tk.id;
         renderTokens();
         renderInspector();
@@ -8792,6 +8766,112 @@ el.querySelectorAll(".init-row").forEach((row) => {
   try { renderMapLib(); } catch (_) {}
 
 
+
+  // ── Token üzerinde envanter paneli ──
+  function openTokenInventory(tok) {
+    if (!tok) return;
+    selectedId = tok.id;
+    try { renderInspector(); } catch (_) {}
+    let panel = document.getElementById("tokenInvFloat");
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "tokenInvFloat";
+      panel.className = "token-inv-float";
+      document.body.appendChild(panel);
+    }
+    const canInv = isDm() || canEditToken(tok) || canControlToken(tok);
+    const items = (typeof getCharInventory === "function" ? getCharInventory(tok) : tok.inventory) || [];
+    const slots = [
+      { id: "mainhand", label: "⚔ Sağ el" },
+      { id: "offhand", label: "🛡 Sol el" },
+      { id: "armor", label: "🧥 Zırh" },
+      { id: "bag", label: "🎒 Çanta" },
+    ];
+    function itemsIn(slot) {
+      return items.map((it, idx) => ({ it, idx })).filter((x) => (x.it.slot || "bag") === slot);
+    }
+    let html = '<div class="tif-head"><span>' + esc(tok.name || "Token") + ' — Envanter</span>' +
+      '<button type="button" class="tif-close" id="tifClose">×</button></div>';
+    html += '<div class="tif-grid">';
+    slots.forEach((s) => {
+      const list = itemsIn(s.id);
+      html += '<div class="tif-col"><div class="tif-col-h">' + s.label + '</div>';
+      if (!list.length) html += '<div class="tif-empty">Boş</div>';
+      list.forEach(({ it, idx }) => {
+        html += '<div class="tif-item">' +
+          '<div class="tif-name">' + esc(it.name || "?") + '</div>' +
+          '<select data-tif-move="' + idx + '"' + (canInv ? "" : " disabled") + '>' +
+          slots.map((o) => '<option value="' + o.id + '"' + ((it.slot || "bag") === o.id ? " selected" : "") + '>' + o.label.replace(/^[^ ]+ /, "") + '</option>').join("") +
+          '</select></div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+    if (canInv) {
+      html += '<div class="tif-add"><input id="tifName" placeholder="Yeni eşya" maxlength="40"/>' +
+        '<select id="tifSlot"><option value="bag">Çanta</option><option value="mainhand">Sağ</option><option value="offhand">Sol</option><option value="armor">Zırh</option></select>' +
+        '<button type="button" id="tifAdd">Ekle</button></div>';
+    }
+    panel.innerHTML = html;
+    panel.style.display = "flex";
+    // position near center-right
+    panel.style.left = Math.min(window.innerWidth - 420, Math.max(12, window.innerWidth * 0.55)) + "px";
+    panel.style.top = "80px";
+
+    panel.querySelector("#tifClose")?.addEventListener("click", () => {
+      panel.style.display = "none";
+    });
+    panel.querySelectorAll("[data-tif-move]").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        if (!canInv) return;
+        let list = (getCharInventory(tok) || []).map((x) => Object.assign({}, x));
+        const i = +sel.dataset.tifMove;
+        const slot = sel.value;
+        if (slot !== "bag") {
+          list = list.map((x, j) => j !== i && x.slot === slot ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
+        }
+        if (list[i]) {
+          if (slot === "offhand") {
+            const main = list.find((x) => x.slot === "mainhand" && x.twoHand);
+            if (main) {
+              alert("2 el silah sol eli kilitler.");
+              openTokenInventory(tok);
+              return;
+            }
+          }
+          list[i].slot = slot;
+          list[i].equipped = slot !== "bag";
+          if (slot === "mainhand" && list[i].twoHand) {
+            list = list.map((x, j) => j !== i && x.slot === "offhand" ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
+          }
+        }
+        setCharInventory(tok, list);
+        openTokenInventory(tok);
+        try { renderShortSheet(tok); } catch (_) {}
+        try { renderInspector(); } catch (_) {}
+      });
+    });
+    panel.querySelector("#tifAdd")?.addEventListener("click", () => {
+      const name = (panel.querySelector("#tifName")?.value || "").trim();
+      if (!name) return;
+      const slot = panel.querySelector("#tifSlot")?.value || "bag";
+      let list = (getCharInventory(tok) || []).map((x) => Object.assign({}, x));
+      if (slot !== "bag") {
+        list = list.map((x) => x.slot === slot ? Object.assign({}, x, { slot: "bag", equipped: false }) : x);
+      }
+      list.push({
+        id: "i_" + Math.random().toString(36).slice(2, 9),
+        name, qty: 1, notes: "", slot, kind: "gear",
+        equipped: slot !== "bag",
+      });
+      setCharInventory(tok, list);
+      openTokenInventory(tok);
+      try { renderInspector(); } catch (_) {}
+    });
+  }
+  window.__originsOpenTokenInv = openTokenInventory;
+
+
   (function initSideSections() {
     const STORE = "origins_side_sections_v1";
     function loadSecState() {
@@ -8837,6 +8917,39 @@ el.querySelectorAll(".init-row").forEach((row) => {
           const st = loadSecState();
           st[key] = wrap.classList.contains("open");
           saveSecState(st);
+        });
+        // Boyut: alttan tutup çek
+        const grip = document.createElement("div");
+        grip.className = "side-section-grip";
+        grip.title = "Yükseklik ayarla";
+        body.appendChild(grip);
+        const heights = loadSecState()._heights || {};
+        if (heights[key]) {
+          body.style.maxHeight = heights[key];
+          body.style.overflowY = "auto";
+        }
+        grip.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          wrap.classList.add("open");
+          const startY = e.clientY;
+          const startH = body.getBoundingClientRect().height || 120;
+          const onMove = (ev) => {
+            const nh = Math.max(80, Math.min(480, startH + (ev.clientY - startY)));
+            body.style.maxHeight = nh + "px";
+            body.style.overflowY = "auto";
+          };
+          const onUp = () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            const st = loadSecState();
+            st._heights = st._heights || {};
+            st._heights[key] = body.style.maxHeight;
+            st[key] = true;
+            saveSecState(st);
+          };
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
         });
       });
     }

@@ -92,8 +92,12 @@ function initCharacters() {
 
 
   function readInventoryFromDom() {
+    const box = document.getElementById("invList");
+    if (box && typeof box._readInv === "function") {
+      try { return box._readInv().filter(function (x) { return x && x.name; }); } catch (_) {}
+    }
     const list = [];
-    document.querySelectorAll("#invList .inv-card").forEach((row) => {
+    document.querySelectorAll("#invList .eq-item, #invList .inv-card").forEach((row) => {
       const name = (row.querySelector("[data-inv=name]")?.value || "").trim();
       if (!name) return;
       const qty = Math.max(1, parseInt(row.querySelector("[data-inv=qty]")?.value, 10) || 1);
@@ -142,97 +146,213 @@ function initCharacters() {
     return "<option value=\"" + val + "\"" + (cur === val ? " selected" : "") + ">" + label + "</option>";
   }
 
+
   function renderInventoryEditor(items) {
     const box = document.getElementById("invList");
     if (!box) return;
     items = Array.isArray(items) ? items.slice() : [];
-    if (!items.length) {
-      items = [{ id: invUid(), name: "", qty: 1, notes: "", slot: "bag", kind: "gear" }];
+
+    function metaOf(it) {
+      if (!it) return "";
+      if (it.kind === "weapon") {
+        return (it.damage || "1d6") + (it.damageBonus ? " +" + it.damageBonus : "") +
+          (it.weaponType ? " · " + ({ slashing: "kesici", piercing: "saplama", bludgeoning: "ezici" }[it.weaponType] || it.weaponType) : "") +
+          (it.twoHand ? " · 2 el" : "");
+      }
+      if (it.kind === "armor") {
+        return ({ light: "Hafif", chain: "Zincir", plate: "Plate" }[it.armorType] || it.armorType || "") +
+          " · Z" + (it.armorValue || 0) + " · AC+" + (it.acBonus || 0) +
+          (it.speedPenalty ? " · hız−" + it.speedPenalty : "");
+      }
+      return it.notes || "Eşya";
     }
-    box.innerHTML = items.map(function (it) {
+
+    function slotItem(slot) {
+      return items.find(function (x) { return x.slot === slot; }) || null;
+    }
+
+    function itemCard(it, idx, compact) {
+      if (!it) {
+        return '<div class="eq-empty">Boş</div>';
+      }
       const kind = it.kind || "gear";
-      const id = it.id || invUid();
-      let extra = "";
-      if (kind === "weapon") {
-        extra =
-          "<div class=\"inv-sub\">" +
-          "<label>Hasar<input data-inv=\"dmg\" type=\"text\" value=\"" + String(it.damage || "1d6").replace(/"/g, "&quot;") + "\" placeholder=\"1d8\"/></label>" +
-          "<label>+Hasar<input data-inv=\"dbon\" type=\"number\" value=\"" + (it.damageBonus || 0) + "\"/></label>" +
-          "<label>Tür<select data-inv=\"wtype\">" +
-            invOpt("slashing", it.weaponType || "slashing", "Kesici") +
-            invOpt("piercing", it.weaponType, "Saplama") +
-            invOpt("bludgeoning", it.weaponType, "Ezici") +
-          "</select></label>" +
-          "<label class=\"inv-check\"><input data-inv=\"2h\" type=\"checkbox\"" + (it.twoHand ? " checked" : "") + "/> 2 el</label>" +
-          "</div>";
-      } else if (kind === "armor") {
-        extra =
-          "<div class=\"inv-sub\">" +
-          "<label>Zırh türü<select data-inv=\"atype\">" +
-            invOpt("light", it.armorType || "light", "Hafif") +
-            invOpt("chain", it.armorType, "Zincir") +
-            invOpt("plate", it.armorType, "Plate") +
-          "</select></label>" +
-          "<label>Zırh puanı<input data-inv=\"aval\" type=\"number\" min=\"0\" value=\"" + (it.armorValue || 0) + "\"/></label>" +
-          "<label>AC+<input data-inv=\"ac\" type=\"number\" value=\"" + (it.acBonus || 0) + "\"/></label>" +
-          "<label>Hız ceza<input data-inv=\"spd\" type=\"number\" min=\"0\" value=\"" + (it.speedPenalty || 0) + "\"/></label>" +
-          "</div>";
+      let fields = "";
+      if (!compact) {
+        if (kind === "weapon") {
+          fields =
+            '<div class="eq-fields">' +
+            '<label>Hasar<input data-inv="dmg" data-idx="' + idx + '" type="text" value="' + String(it.damage || "1d6").replace(/"/g, "&quot;") + '"/></label>' +
+            '<label>+Hasar<input data-inv="dbon" data-idx="' + idx + '" type="number" value="' + (it.damageBonus || 0) + '"/></label>' +
+            '<label>Tür<select data-inv="wtype" data-idx="' + idx + '">' +
+              invOpt("slashing", it.weaponType || "slashing", "Kesici") +
+              invOpt("piercing", it.weaponType, "Saplama") +
+              invOpt("bludgeoning", it.weaponType, "Ezici") +
+            '</select></label>' +
+            '<label class="eq-check"><input data-inv="2h" data-idx="' + idx + '" type="checkbox"' + (it.twoHand ? " checked" : "") + '/> 2 el</label>' +
+            '</div>';
+        } else if (kind === "armor") {
+          fields =
+            '<div class="eq-fields">' +
+            '<label>Tür<select data-inv="atype" data-idx="' + idx + '">' +
+              invOpt("light", it.armorType || "light", "Hafif") +
+              invOpt("chain", it.armorType, "Zincir") +
+              invOpt("plate", it.armorType, "Plate") +
+            '</select></label>' +
+            '<label>Zırh<input data-inv="aval" data-idx="' + idx + '" type="number" min="0" value="' + (it.armorValue || 0) + '"/></label>' +
+            '<label>AC+<input data-inv="ac" data-idx="' + idx + '" type="number" value="' + (it.acBonus || 0) + '"/></label>' +
+            '<label>Hız−<input data-inv="spd" data-idx="' + idx + '" type="number" min="0" value="' + (it.speedPenalty || 0) + '"/></label>' +
+            '</div>';
+        }
       }
       return (
-        "<div class=\"inv-card\" data-inv-id=\"" + id + "\">" +
-          "<div class=\"inv-main\">" +
-            "<input data-inv=\"name\" type=\"text\" placeholder=\"Eşya adı\" maxlength=\"48\" value=\"" + String(it.name || "").replace(/"/g, "&quot;") + "\" />" +
-            "<input data-inv=\"qty\" type=\"number\" min=\"1\" max=\"99\" value=\"" + (it.qty || 1) + "\" title=\"Adet\" />" +
-            "<select data-inv=\"kind\">" +
-              invOpt("gear", kind, "Eşya") +
-              invOpt("weapon", kind, "Silah") +
-              invOpt("armor", kind, "Zırh") +
-            "</select>" +
-            "<select data-inv=\"slot\">" +
+        '<div class="eq-item" data-inv-id="' + (it.id || invUid()) + '" data-idx="' + idx + '">' +
+          '<div class="eq-item-top">' +
+            '<input class="eq-name" data-inv="name" data-idx="' + idx + '" type="text" value="' + String(it.name || "").replace(/"/g, "&quot;") + '" placeholder="Eşya adı" />' +
+            '<input class="eq-qty" data-inv="qty" data-idx="' + idx + '" type="number" min="1" max="99" value="' + (it.qty || 1) + '" title="Adet" />' +
+            '<select data-inv="kind" data-idx="' + idx + '">' +
+              invOpt("gear", kind, "Eşya") + invOpt("weapon", kind, "Silah") + invOpt("armor", kind, "Zırh") +
+            '</select>' +
+            '<select data-inv="slot" data-idx="' + idx + '" title="Slot">' +
               invOpt("bag", it.slot || "bag", "Çanta") +
               invOpt("mainhand", it.slot, "Sağ el") +
               invOpt("offhand", it.slot, "Sol el") +
-              invOpt("armor", it.slot, "Zırh slot") +
-            "</select>" +
-            "<button type=\"button\" class=\"inv-del\" title=\"Sil\">×</button>" +
-          "</div>" +
-          extra +
-          "<input data-inv=\"notes\" type=\"text\" class=\"inv-notes\" placeholder=\"Not (isteğe bağlı)\" maxlength=\"80\" value=\"" + String(it.notes || "").replace(/"/g, "&quot;") + "\" />" +
-        "</div>"
+              invOpt("armor", it.slot, "Zırh") +
+            '</select>' +
+            '<button type="button" class="eq-del inv-del" data-del-idx="' + idx + '" title="Sil">×</button>' +
+          '</div>' +
+          '<div class="eq-meta">' + metaOf(it) + '</div>' +
+          fields +
+          (compact ? "" : '<input class="eq-notes" data-inv="notes" data-idx="' + idx + '" type="text" placeholder="Not" value="' + String(it.notes || "").replace(/"/g, "&quot;") + '" />') +
+        '</div>'
       );
-    }).join("");
+    }
 
-    box.querySelectorAll(".inv-del").forEach(function (btn) {
+    // Collect all indices by slot for display order: equipped first visual
+    const bySlot = { mainhand: null, offhand: null, armor: null, bag: [] };
+    items.forEach(function (it, idx) {
+      const s = it.slot || "bag";
+      if (s === "mainhand" || s === "offhand" || s === "armor") {
+        if (bySlot[s] == null) bySlot[s] = idx;
+        else bySlot.bag.push(idx); // duplicate slots go to bag display
+      } else bySlot.bag.push(idx);
+    });
+
+    function chip(label, it) {
+      if (!it) return '<div class="eq-slot-col"><div class="eq-slot-label">' + label + '</div><div class="eq-empty">Boş</div></div>';
+      return '<div class="eq-slot-col"><div class="eq-slot-label">' + label + '</div>' +
+        '<div class="eq-chip"><strong>' + String(it.name || "?").replace(/</g, "") + '</strong>' +
+        '<span>' + metaOf(it) + '</span></div></div>';
+    }
+    let html = '<div class="eq-layout">';
+    html += '<div class="eq-paper">';
+    html += chip("⚔ Sağ el", bySlot.mainhand != null ? items[bySlot.mainhand] : null);
+    html += chip("🛡 Sol el", bySlot.offhand != null ? items[bySlot.offhand] : null);
+    html += chip("🧥 Zırh", bySlot.armor != null ? items[bySlot.armor] : null);
+    html += '</div>';
+
+    html += '<div class="eq-bag-head"><span>Çanta</span><span class="eq-bag-count">' + bySlot.bag.length + ' eşya</span></div>';
+    html += '<div class="eq-bag">';
+    if (!bySlot.bag.length && bySlot.mainhand == null && bySlot.offhand == null && bySlot.armor == null) {
+      html += '<div class="eq-empty soft">Henüz eşya yok — şablonlardan ekle veya + Eşya</div>';
+    }
+    // Full editors for ALL items in bag section + also show equipped with full fields below
+    items.forEach(function (it, idx) {
+      html += itemCard(it, idx, false);
+    });
+    html += '</div></div>';
+
+    box.innerHTML = html;
+
+    function readAllFromDom() {
+      const map = Object.create(null);
+      box.querySelectorAll("[data-idx]").forEach(function (el) {
+        const idx = el.getAttribute("data-idx");
+        if (idx == null) return;
+        if (!map[idx]) map[idx] = { id: invUid() };
+      });
+      // Prefer .eq-item as source of truth
+      const list = [];
+      const seen = Object.create(null);
+      box.querySelectorAll(".eq-bag > .eq-item").forEach(function (row) {
+        const idx = row.getAttribute("data-idx");
+        if (idx == null || seen[idx]) return;
+        seen[idx] = true;
+        const name = (row.querySelector("[data-inv=name]")?.value || "").trim();
+        const kind = row.querySelector("[data-inv=kind]")?.value || "gear";
+        const slot = row.querySelector("[data-inv=slot]")?.value || "bag";
+        const item = {
+          id: row.dataset.invId || invUid(),
+          name: name || "Eşya",
+          qty: parseInt(row.querySelector("[data-inv=qty]")?.value, 10) || 1,
+          notes: row.querySelector("[data-inv=notes]")?.value || "",
+          slot: slot,
+          kind: kind,
+          weaponType: "",
+          damage: "",
+          damageBonus: 0,
+          armorType: "",
+          armorValue: 0,
+          acBonus: 0,
+          speedPenalty: 0,
+          twoHand: false,
+          equipped: slot === "mainhand" || slot === "offhand" || slot === "armor",
+        };
+        if (kind === "weapon") {
+          item.weaponType = row.querySelector("[data-inv=wtype]")?.value || "slashing";
+          item.damage = (row.querySelector("[data-inv=dmg]")?.value || "1d6").trim() || "1d6";
+          item.damageBonus = parseInt(row.querySelector("[data-inv=dbon]")?.value, 10) || 0;
+          item.twoHand = !!row.querySelector("[data-inv=2h]")?.checked;
+        }
+        if (kind === "armor") {
+          item.armorType = row.querySelector("[data-inv=atype]")?.value || "light";
+          item.armorValue = parseInt(row.querySelector("[data-inv=aval]")?.value, 10) || 0;
+          item.acBonus = parseInt(row.querySelector("[data-inv=ac]")?.value, 10) || 0;
+          item.speedPenalty = parseInt(row.querySelector("[data-inv=spd]")?.value, 10) || 0;
+        }
+        list.push(item);
+      });
+      return list;
+    }
+
+    // Override global read for form save - attach to box
+    box._readInv = readAllFromDom;
+
+    box.querySelectorAll(".eq-del, .inv-del").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        const card = btn.closest(".inv-card");
-        if (card) card.remove();
-        if (!box.querySelector(".inv-card")) renderInventoryEditor([]);
+        const idx = +btn.getAttribute("data-del-idx");
+        const list = readAllFromDom();
+        // delete by matching data-idx order in list - safer: use inv id
+        const row = btn.closest(".eq-item");
+        const id = row && row.dataset.invId;
+        const next = list.filter(function (x) { return x.id !== id; });
+        renderInventoryEditor(next);
       });
     });
-    box.querySelectorAll("[data-inv=kind]").forEach(function (sel) {
+
+    box.querySelectorAll("[data-inv=kind], [data-inv=slot]").forEach(function (sel) {
       sel.addEventListener("change", function () {
-        // Mevcut değerleri koru, sadece tür değişince alt alanları yenile
-        const cards = [];
-        box.querySelectorAll(".inv-card").forEach(function (row) {
-          const name = (row.querySelector("[data-inv=name]")?.value || "");
-          cards.push({
-            id: row.dataset.invId || invUid(),
-            name: name,
-            qty: parseInt(row.querySelector("[data-inv=qty]")?.value, 10) || 1,
-            notes: row.querySelector("[data-inv=notes]")?.value || "",
-            slot: row.querySelector("[data-inv=slot]")?.value || "bag",
-            kind: row.querySelector("[data-inv=kind]")?.value || "gear",
-            damage: row.querySelector("[data-inv=dmg]")?.value || "1d6",
-            damageBonus: parseInt(row.querySelector("[data-inv=dbon]")?.value, 10) || 0,
-            weaponType: row.querySelector("[data-inv=wtype]")?.value || "slashing",
-            twoHand: !!row.querySelector("[data-inv=2h]")?.checked,
-            armorType: row.querySelector("[data-inv=atype]")?.value || "light",
-            armorValue: parseInt(row.querySelector("[data-inv=aval]")?.value, 10) || 0,
-            acBonus: parseInt(row.querySelector("[data-inv=ac]")?.value, 10) || 0,
-            speedPenalty: parseInt(row.querySelector("[data-inv=spd]")?.value, 10) || 0,
+        // slot exclusivity
+        let list = readAllFromDom();
+        const row = sel.closest(".eq-item");
+        if (!row) return;
+        const id = row.dataset.invId;
+        const me = list.find(function (x) { return x.id === id; });
+        if (!me) return;
+        if (sel.getAttribute("data-inv") === "slot" && me.slot !== "bag") {
+          list = list.map(function (x) {
+            if (x.id !== id && x.slot === me.slot) {
+              return Object.assign({}, x, { slot: "bag", equipped: false });
+            }
+            return x;
           });
-        });
-        renderInventoryEditor(cards);
+        }
+        if (me.slot === "mainhand" && me.twoHand) {
+          list = list.map(function (x) {
+            if (x.id !== id && x.slot === "offhand") return Object.assign({}, x, { slot: "bag", equipped: false });
+            return x;
+          });
+        }
+        renderInventoryEditor(list);
       });
     });
   }
